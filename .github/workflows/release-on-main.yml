@@ -72,6 +72,14 @@ jobs:
             --title "Release ${{ steps.get_version.outputs.tag }}" \
             --notes-file release_notes.md
 
+      - name: Trigger Docker Build Workflow
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run docker-build-push.yml \
+            --ref ${{ steps.get_version.outputs.tag }}
+
       - name: Skip Release
         if: steps.check_tag.outputs.exists == 'true'
         run: |
