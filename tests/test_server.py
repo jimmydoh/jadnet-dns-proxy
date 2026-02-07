@@ -354,5 +354,5 @@ async def test_main_signal_handler_not_implemented():
         warning_calls = [call for call in mock_logger.warning.call_args_list 
                          if "Signal handlers not supported" in str(call)]
         assert len(warning_calls) == 1
-        assert "Windows" in str(warning_calls[0])
+        assert "Windows systems" in str(warning_calls[0])
 

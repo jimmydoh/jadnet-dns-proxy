@@ -140,7 +140,7 @@ async def main():
             loop.add_signal_handler(signal.SIGTERM, signal_handler)
             loop.add_signal_handler(signal.SIGINT, signal_handler)
         except NotImplementedError:
-            logger.warning("Signal handlers not supported on this platform (Windows?)")
+            logger.warning("Signal handlers not supported on this platform. This is expected on Windows systems.")
 
         await stop_event.wait()
         
