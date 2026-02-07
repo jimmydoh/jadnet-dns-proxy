@@ -35,8 +35,8 @@ async def test_worker_cache_hit():
         # Create worker task
         worker_task = asyncio.create_task(worker("test-worker", queue, mock_client))
         
-        # Wait a bit for worker to process
-        await asyncio.sleep(0.1)
+        # Wait for the queued item to be processed
+        await queue.join()
         
         # Cancel worker
         worker_task.cancel()
