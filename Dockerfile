@@ -6,11 +6,16 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Copy source files from src directory
-COPY src/ ./src/
+# Copy pyproject.toml first for better layer caching
 COPY pyproject.toml .
 
-# Install the package and its dependencies
+# Install dependencies first (cached unless pyproject.toml changes)
+RUN pip install --no-cache-dir dnslib==0.9.23 "httpx[http2]==0.24.1"
+
+# Now copy source code
+COPY src/ ./src/
+
+# Install the actual package
 RUN pip install --no-cache-dir .
 
 # Healthcheck to ensure the port is open
