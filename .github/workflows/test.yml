@@ -15,16 +15,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ['3.11', '3.12']
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4.2.2
     
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v5.3.0
       with:
         python-version: ${{ matrix.python-version }}
     
@@ -38,7 +40,7 @@ jobs:
         pytest tests/ --cov=jadnet_dns_proxy --cov-report=term-missing --cov-report=xml --cov-report=html -v
     
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5.1.2
       with:
         file: ./coverage.xml
         flags: unittests
@@ -47,7 +49,7 @@ jobs:
       continue-on-error: true
     
     - name: Upload coverage HTML report as artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v4.5.0
       if: always()
       with:
         name: coverage-report-python-${{ matrix.python-version }}
