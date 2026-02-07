@@ -7,7 +7,7 @@ LISTEN_PORT = int(os.getenv('LISTEN_PORT', 5053))
 LISTEN_HOST = os.getenv('LISTEN_HOST', '0.0.0.0')
 
 # DOH_UPSTREAM can be a single URL or comma-separated list of URLs
-_doh_upstream_env = os.getenv('DOH_UPSTREAM', 'https://cloudflare-dns.com/dns-query')
+_doh_upstream_env = os.getenv('DOH_UPSTREAM', 'https://1.1.1.1/dns-query')
 DOH_UPSTREAMS = [url.strip() for url in _doh_upstream_env.split(',') if url.strip()]
 
 WORKER_COUNT = int(os.getenv('WORKER_COUNT', 10))
