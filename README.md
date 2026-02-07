@@ -2,6 +2,15 @@
 
 A high-performance DNS-over-HTTPS (DoH) proxy with caching and connection pooling.
 
+## CI/CD Workflows
+
+This project uses GitHub Actions for automated releases and Docker image builds:
+
+- **Release on Main**: When code is pushed to the `main` branch, a workflow automatically extracts the version from `pyproject.toml` and creates a new GitHub release with the corresponding tag (e.g., `v0.1.0`).
+- **Docker Build & Push**: When a new release tag is created, a separate workflow automatically builds and pushes the Docker image to GitHub Container Registry with the `latest` tag and version-specific tags.
+
+To trigger a new release, simply update the version in `pyproject.toml` and merge to the `main` branch.
+
 ## Project Structure
 
 The project is organized as a proper Python module:
