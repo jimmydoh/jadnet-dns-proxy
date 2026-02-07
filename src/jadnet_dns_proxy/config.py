@@ -6,6 +6,7 @@ import logging
 LISTEN_PORT = int(os.getenv('LISTEN_PORT', 5053))
 LISTEN_HOST = os.getenv('LISTEN_HOST', '0.0.0.0')
 DOH_UPSTREAM = os.getenv('DOH_UPSTREAM', 'https://cloudflare-dns.com/dns-query')
+BOOTSTRAP_DNS = os.getenv('BOOTSTRAP_DNS', '8.8.8.8')  # Default to Google for bootstrap
 WORKER_COUNT = int(os.getenv('WORKER_COUNT', 10))
 QUEUE_SIZE = int(os.getenv('QUEUE_SIZE', 1000))
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')

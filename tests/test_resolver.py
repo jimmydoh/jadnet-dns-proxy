@@ -22,7 +22,7 @@ async def test_resolve_doh_success():
     mock_client.post = AsyncMock(return_value=mock_response)
     
     # Call resolve_doh
-    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack())
+    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), "https://test.example.com/dns-query")
     
     # Verify result
     assert result_bytes == response_bytes
@@ -52,7 +52,7 @@ async def test_resolve_doh_multiple_answers():
     mock_response.raise_for_status = Mock()
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack())
+    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), "https://test.example.com/dns-query")
     
     # Should use minimum TTL
     assert ttl == 300
@@ -72,7 +72,7 @@ async def test_resolve_doh_no_answers():
     mock_response.raise_for_status = Mock()
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack())
+    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), "https://test.example.com/dns-query")
     
     # Should use default TTL
     assert ttl == 300
@@ -84,7 +84,7 @@ async def test_resolve_doh_http_error():
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(side_effect=Exception("HTTP error"))
     
-    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query")
+    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", "https://test.example.com/dns-query")
     
     # Should return None and 0 on error
     assert result_bytes is None
@@ -99,7 +99,7 @@ async def test_resolve_doh_timeout():
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
     
-    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query")
+    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", "https://test.example.com/dns-query")
     
     assert result_bytes is None
     assert ttl == 0
@@ -117,16 +117,15 @@ async def test_resolve_doh_http_status_error():
     ))
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query")
+    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", "https://test.example.com/dns-query")
     
     assert result_bytes is None
     assert ttl == 0
 
 
 @pytest.mark.asyncio
-@patch('jadnet_dns_proxy.resolver.DOH_UPSTREAM', 'https://test.example.com/dns-query')
 async def test_resolve_doh_uses_config_upstream():
-    """Test that resolve_doh uses the configured upstream."""
+    """Test that resolve_doh uses the provided upstream URL."""
     dns_request = DNSRecord.question("example.com", "A")
     dns_response = dns_request.reply()
     response_bytes = dns_response.pack()
@@ -137,8 +136,8 @@ async def test_resolve_doh_uses_config_upstream():
     mock_response.raise_for_status = Mock()
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    await resolve_doh(mock_client, dns_request.pack())
+    await resolve_doh(mock_client, dns_request.pack(), 'https://custom.example.com/dns-query')
     
     # Verify the correct upstream URL was used
     call_args = mock_client.post.call_args
-    assert call_args[0][0] == 'https://test.example.com/dns-query'
+    assert call_args[0][0] == 'https://custom.example.com/dns-query'

@@ -36,7 +36,7 @@ async def test_worker_cache_hit():
     mock_client = AsyncMock()
     
     # Create worker task with cache parameter
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, "https://test.example.com/dns-query"))
     
     # Wait for the queued item to be processed
     await queue.join()
@@ -94,7 +94,7 @@ async def test_worker_cache_miss():
                return_value=(response_bytes, 600)) as mock_resolve:
         
         # Create worker task with cache parameter
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, "https://test.example.com/dns-query"))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -140,7 +140,7 @@ async def test_worker_resolve_error():
     mock_client = AsyncMock()
     # Mock resolve_doh to return None (error case)
     with patch('jadnet_dns_proxy.server.resolve_doh', return_value=(None, 0)):
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, "https://test.example.com/dns-query"))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -173,7 +173,7 @@ async def test_worker_invalid_dns_packet():
     
     mock_client = AsyncMock()
     
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, "https://test.example.com/dns-query"))
     
     # Wait for the queued item to be processed
     await queue.join()
@@ -242,7 +242,7 @@ async def test_worker_task_done_called():
         
         queue.task_done = tracked_task_done
         
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, "https://test.example.com/dns-query"))
         
         # Wait for the queued item to be processed
         await queue.join()

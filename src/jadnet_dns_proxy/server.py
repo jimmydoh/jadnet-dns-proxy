@@ -3,13 +3,14 @@ import asyncio
 import signal
 import httpx
 from dnslib import DNSRecord, QTYPE
-from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE
+from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE, DOH_UPSTREAM
 from .protocol import DNSProtocol
 from .cache import DNSCache
 from .resolver import resolve_doh
+from .bootstrap import get_upstream_ip
 
 
-async def worker(name, queue, client, cache):
+async def worker(name, queue, client, cache, upstream_url):
     """
     Worker that consumes packets from queue and processes them.
     
@@ -18,6 +19,7 @@ async def worker(name, queue, client, cache):
         queue: Asyncio queue containing DNS requests
         client: HTTP client for DoH requests
         cache: DNS cache instance
+        upstream_url: The resolved URL of the DoH provider
     """
     logger.debug(f"Worker {name} started")
     while True:
@@ -46,7 +48,7 @@ async def worker(name, queue, client, cache):
             
             else:
                 # 3. Fetch from DoH
-                response_bytes, ttl = await resolve_doh(client, data)
+                response_bytes, ttl = await resolve_doh(client, data, upstream_url)
                 
                 if response_bytes:
                     transport.sendto(response_bytes, addr)
@@ -74,6 +76,11 @@ async def cleaner_task(cache):
 
 async def main():
     """Main server entry point."""
+    # 1. Run Bootstrap BEFORE starting the loop
+    # This resolves the URL to an IP-based URL to avoid system resolver loops
+    final_upstream_url = get_upstream_ip(DOH_UPSTREAM)
+    logger.info(f"Using Upstream: {final_upstream_url}")
+    
     # Create a Queue
     queue = asyncio.Queue(maxsize=QUEUE_SIZE)
     
@@ -96,8 +103,8 @@ async def main():
         # Start Workers
         tasks = []
         for i in range(WORKER_COUNT):
-            # Pass cache to worker
-            task = asyncio.create_task(worker(f"w-{i}", queue, client, cache))
+            # Pass final_upstream_url to workers
+            task = asyncio.create_task(worker(f"w-{i}", queue, client, cache, final_upstream_url))
             tasks.append(task)
             
         # Start Cache Cleaner and pass cache
