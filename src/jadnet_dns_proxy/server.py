@@ -2,9 +2,10 @@
 import asyncio
 import signal
 import httpx
+import httpcore
 from dnslib import DNSRecord, QTYPE
-from .bootstrap import get_upstream_ip
-from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE, DOH_UPSTREAMS
+from .bootstrap import CustomDNSNetworkBackend
+from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE, DOH_UPSTREAMS, BOOTSTRAP_DNS
 from .protocol import DNSProtocol
 from .cache import DNSCache
 from .resolver import resolve_doh
@@ -90,10 +91,9 @@ async def cleaner_task(cache):
 
 async def main():
     """Main server entry point."""
-    # Bootstrap upstream URLs (resolve hostnames to IPs to avoid DNS loops)
-    logger.info("Bootstrapping upstream URLs...")
-    bootstrapped_upstreams = [get_upstream_ip(url) for url in DOH_UPSTREAMS]
-    logger.info(f"Using Upstreams: {bootstrapped_upstreams}")
+    # Use original upstream URLs (no URL rewriting)
+    # DNS resolution will be handled by CustomDNSNetworkBackend
+    logger.info(f"Initializing with upstream URLs: {DOH_UPSTREAMS}")
     
     # Create a Queue
     queue = asyncio.Queue(maxsize=QUEUE_SIZE)
@@ -101,15 +101,24 @@ async def main():
     # Instantiate cache
     cache = DNSCache()
     
-    # Initialize upstream manager with bootstrapped URLs
-    upstream_manager = UpstreamManager(bootstrapped_upstreams)
+    # Initialize upstream manager with original URLs (not bootstrapped)
+    upstream_manager = UpstreamManager(DOH_UPSTREAMS)
 
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()
     
-    # Create persistent HTTP/2 client
+    # Create custom network backend that performs DNS resolution while preserving SNI
+    network_backend = CustomDNSNetworkBackend(bootstrap_dns=BOOTSTRAP_DNS)
+    
+    # Create persistent HTTP/2 client with custom network backend
+    # This ensures DNS is resolved manually but hostname is preserved for SNI
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=WORKER_COUNT + 5)
-    async with httpx.AsyncClient(http2=True, limits=limits) as client:
+    transport = httpx.AsyncHTTPTransport(
+        http2=True, 
+        limits=limits, 
+        network_backend=network_backend
+    )
+    async with httpx.AsyncClient(transport=transport) as client:
         
         # Start UDP Server
         transport, protocol = await loop.create_datagram_endpoint(
