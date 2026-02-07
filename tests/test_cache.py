@@ -1,6 +1,5 @@
 """Unit tests for the DNS cache module."""
 import time
-import pytest
 from unittest.mock import patch
 from jadnet_dns_proxy.cache import DNSCache
 
