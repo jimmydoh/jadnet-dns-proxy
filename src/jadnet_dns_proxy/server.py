@@ -3,6 +3,7 @@ import asyncio
 import signal
 import httpx
 from dnslib import DNSRecord, QTYPE
+from .bootstrap import get_upstream_ip
 from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE, DOH_UPSTREAMS
 from .protocol import DNSProtocol
 from .cache import DNSCache
@@ -89,14 +90,19 @@ async def cleaner_task(cache):
 
 async def main():
     """Main server entry point."""
+    # Bootstrap upstream URLs (resolve hostnames to IPs to avoid DNS loops)
+    logger.info("Bootstrapping upstream URLs...")
+    bootstrapped_upstreams = [get_upstream_ip(url) for url in DOH_UPSTREAMS]
+    logger.info(f"Using Upstreams: {bootstrapped_upstreams}")
+    
     # Create a Queue
     queue = asyncio.Queue(maxsize=QUEUE_SIZE)
     
     # Instantiate cache
     cache = DNSCache()
     
-    # Initialize upstream manager
-    upstream_manager = UpstreamManager(DOH_UPSTREAMS)
+    # Initialize upstream manager with bootstrapped URLs
+    upstream_manager = UpstreamManager(bootstrapped_upstreams)
 
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()

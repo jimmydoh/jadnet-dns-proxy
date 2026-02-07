@@ -80,6 +80,25 @@ Configure via environment variables:
 - `CACHE_ENABLED` - Enable DNS caching (default: true)
 - `LOG_LEVEL` - Logging level (default: INFO)
 
+### Bootstrap DNS Resolution
+
+When the DNS proxy container is the only DNS resolver in an isolated network, it may encounter a chicken-and-egg problem: it needs to resolve the DoH provider's hostname (e.g., `cloudflare-dns.com`) using DNS, but it is itself the DNS resolver.
+
+To solve this, the proxy implements a **bootstrap mechanism** that performs a one-shot raw UDP query to a fallback DNS server (configured via `BOOTSTRAP_DNS`) at startup. This bootstrap query resolves the DoH hostname to an IP address, bypassing the system resolver entirely.
+
+**Key features:**
+- If the `DOH_UPSTREAM` is already an IP address, no bootstrap is performed
+- The bootstrap query is sent directly to `BOOTSTRAP_DNS` via raw UDP (port 53)
+- The resolved IP is used to replace the hostname in the DoH URL
+- On bootstrap failure, the proxy falls back to the original URL (system resolver)
+- Default bootstrap DNS is Google Public DNS (8.8.8.8)
+
+**Example:** If `DOH_UPSTREAM=https://cloudflare-dns.com/dns-query`, the proxy will:
+1. Query `BOOTSTRAP_DNS` (8.8.8.8) for `cloudflare-dns.com`
+2. Replace the hostname with the resolved IP (e.g., `https://104.16.248.249/dns-query`)
+3. Use the IP-based URL for all DoH requests
+
+This ensures the proxy can function correctly even when it's the sole DNS resolver in the network.
 ### Multiple Upstream Servers
 
 When multiple upstream servers are configured:

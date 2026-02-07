@@ -10,6 +10,7 @@ LISTEN_HOST = os.getenv('LISTEN_HOST', '0.0.0.0')
 _doh_upstream_env = os.getenv('DOH_UPSTREAM', 'https://1.1.1.1/dns-query')
 DOH_UPSTREAMS = [url.strip() for url in _doh_upstream_env.split(',') if url.strip()]
 
+BOOTSTRAP_DNS = os.getenv('BOOTSTRAP_DNS', '8.8.8.8')  # Default to Google for bootstrap
 WORKER_COUNT = int(os.getenv('WORKER_COUNT', 10))
 QUEUE_SIZE = int(os.getenv('QUEUE_SIZE', 1000))
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
