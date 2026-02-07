@@ -43,9 +43,7 @@ jobs:
         run: |
           gh release create ${{ steps.get_version.outputs.tag }} \
             --title "Release ${{ steps.get_version.outputs.tag }}" \
-            --notes "Automated release for version ${{ steps.get_version.outputs.version }}
-          
-          This release was automatically created from the main branch."
+            --notes "Automated release for version ${{ steps.get_version.outputs.version }}. This release was automatically created from the main branch."
 
       - name: Skip Release
         if: steps.check_tag.outputs.exists == 'true'
