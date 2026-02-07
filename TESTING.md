@@ -56,11 +56,12 @@ Tests are organized in the `tests/` directory with the following structure:
 ```
 tests/
 ├── __init__.py
-├── test_cache.py       # Tests for DNS cache functionality
-├── test_config.py      # Tests for configuration loading
-├── test_protocol.py    # Tests for UDP protocol handler
-├── test_resolver.py    # Tests for DoH resolver
-└── test_server.py      # Tests for server and worker functions
+├── test_cache.py             # Tests for DNS cache functionality
+├── test_config.py            # Tests for configuration loading
+├── test_protocol.py          # Tests for UDP protocol handler
+├── test_resolver.py          # Tests for DoH resolver
+├── test_server.py            # Tests for server and worker functions
+└── test_upstream_manager.py  # Tests for upstream server management
 ```
 
 ## Test Coverage
@@ -72,12 +73,13 @@ Current test coverage by module:
 | `cache.py` | 100% | Full coverage of DNS cache functionality |
 | `config.py` | 100% | Full coverage of configuration loading |
 | `protocol.py` | 100% | Full coverage of UDP protocol handler |
-| `resolver.py` | 100% | Full coverage of DoH resolution |
-| `server.py` | ~63% | Core worker functions covered; main entry point not tested |
+| `resolver.py` | 96% | Full coverage of DoH resolution with upstream manager |
+| `upstream_manager.py` | 99% | Full coverage of multi-upstream management, load balancing, and health tracking |
+| `server.py` | ~62% | Core worker functions covered; main entry point not tested |
 | `__init__.py` | 100% | Package initialization |
 | `__main__.py` | 0% | Entry point - not covered by automated tests (invoked when running `python -m jadnet_dns_proxy`) |
 
-**Overall Coverage: ~78%**
+**Overall Coverage: ~84%**
 
 ### Coverage Exclusions
 
@@ -105,6 +107,7 @@ Each module has comprehensive unit tests covering:
 #### config.py
 - Default configuration values
 - Environment variable overrides
+- Multiple upstream parsing (comma-separated)
 - Boolean parsing (CACHE_ENABLED)
 - Logger initialization
 
@@ -122,7 +125,8 @@ Each module has comprehensive unit tests covering:
 - HTTP error handling
 - Timeout handling
 - HTTP status error handling
-- Configuration usage
+- Upstream manager integration
+- No upstream available handling
 
 #### server.py
 - Worker cache hit handling
@@ -130,7 +134,20 @@ Each module has comprehensive unit tests covering:
 - Worker error handling
 - Invalid DNS packet handling
 - Cleaner task functionality
+- Stats task functionality
 - Queue task_done tracking
+
+#### upstream_manager.py
+- Upstream server initialization
+- Success and failure tracking
+- Response time tracking
+- Health status management (marking servers up/down)
+- Success rate calculation
+- Server recovery after failures
+- Round-robin load balancing
+- Skipping down servers
+- Failover to best available server
+- Statistics collection and logging
 
 ## Continuous Integration
 

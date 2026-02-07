@@ -2,8 +2,9 @@
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from dnslib import DNSRecord, QTYPE, RR, A
-from jadnet_dns_proxy.server import worker, cleaner_task
+from jadnet_dns_proxy.server import worker, cleaner_task, stats_task
 from jadnet_dns_proxy.cache import DNSCache
+from jadnet_dns_proxy.upstream_manager import UpstreamManager
 
 import pytest
 
@@ -35,8 +36,11 @@ async def test_worker_cache_hit():
     # Setup mock client (should not be called for cache hit)
     mock_client = AsyncMock()
     
-    # Create worker task with cache parameter
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+    # Setup mock upstream manager (should not be called for cache hit)
+    mock_upstream_manager = Mock()
+    
+    # Create worker task with cache and upstream_manager parameters
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
     
     # Wait for the queued item to be processed
     await queue.join()
@@ -90,11 +94,15 @@ async def test_worker_cache_miss():
     
     # Setup mock client to return response
     mock_client = AsyncMock()
+    
+    # Setup mock upstream manager
+    mock_upstream_manager = Mock()
+    
     with patch('jadnet_dns_proxy.server.resolve_doh', 
                return_value=(response_bytes, 600)) as mock_resolve:
         
-        # Create worker task with cache parameter
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+        # Create worker task with cache and upstream_manager parameters
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -106,8 +114,10 @@ async def test_worker_cache_miss():
         except asyncio.CancelledError:
             pass
         
-        # Verify resolve_doh was called
+        # Verify resolve_doh was called with upstream_manager
         mock_resolve.assert_called_once()
+        call_args = mock_resolve.call_args[0]
+        assert call_args[2] == mock_upstream_manager
         
         # Verify sendto was called
         transport.sendto.assert_called_once_with(response_bytes, addr)
@@ -138,9 +148,11 @@ async def test_worker_resolve_error():
     await queue.put((request_bytes, addr, transport))
     
     mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
     # Mock resolve_doh to return None (error case)
     with patch('jadnet_dns_proxy.server.resolve_doh', return_value=(None, 0)):
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -172,8 +184,9 @@ async def test_worker_invalid_dns_packet():
     await queue.put((invalid_data, addr, transport))
     
     mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
     
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
     
     # Wait for the queued item to be processed
     await queue.join()
@@ -214,6 +227,31 @@ async def test_cleaner_task():
 
 
 @pytest.mark.asyncio
+async def test_stats_task():
+    """Test that stats_task calls log_stats periodically."""
+    # Create mock upstream manager
+    mock_upstream_manager = Mock()
+    mock_upstream_manager.log_stats = Mock()
+    
+    # Mock sleep to avoid actually waiting
+    with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
+        # Make sleep raise CancelledError after first call to stop the loop
+        mock_sleep.side_effect = [None, asyncio.CancelledError()]
+        
+        stats = asyncio.create_task(stats_task(mock_upstream_manager))
+        
+        try:
+            await stats
+        except asyncio.CancelledError:
+            pass
+        
+        # Verify log_stats was called
+        assert mock_upstream_manager.log_stats.call_count >= 1
+        # Verify sleep was called with 300 seconds
+        mock_sleep.assert_called_with(300)
+
+
+@pytest.mark.asyncio
 async def test_worker_task_done_called():
     """Test that worker calls task_done on the queue."""
     queue = asyncio.Queue()
@@ -230,6 +268,8 @@ async def test_worker_task_done_called():
     await queue.put((request_bytes, addr, transport))
     
     mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
     with patch('jadnet_dns_proxy.server.resolve_doh', return_value=(b"response", 300)):
         # Track task_done calls
         original_task_done = queue.task_done
@@ -242,7 +282,7 @@ async def test_worker_task_done_called():
         
         queue.task_done = tracked_task_done
         
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -255,3 +295,4 @@ async def test_worker_task_done_called():
         
         # Verify task_done was called
         assert task_done_called
+

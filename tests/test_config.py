@@ -13,7 +13,8 @@ def test_default_configuration():
     # These should use defaults since no env vars are set in test
     assert isinstance(config_module.LISTEN_PORT, int)
     assert isinstance(config_module.LISTEN_HOST, str)
-    assert isinstance(config_module.DOH_UPSTREAM, str)
+    assert isinstance(config_module.DOH_UPSTREAMS, list)
+    assert len(config_module.DOH_UPSTREAMS) >= 1
     assert isinstance(config_module.WORKER_COUNT, int)
     assert isinstance(config_module.QUEUE_SIZE, int)
     assert isinstance(config_module.LOG_LEVEL, str)
@@ -37,11 +38,36 @@ def test_environment_variable_override():
     
     assert config_module.LISTEN_PORT == 8053
     assert config_module.LISTEN_HOST == '127.0.0.1'
-    assert config_module.DOH_UPSTREAM == 'https://dns.google/dns-query'
+    assert config_module.DOH_UPSTREAMS == ['https://dns.google/dns-query']
     assert config_module.WORKER_COUNT == 20
     assert config_module.QUEUE_SIZE == 2000
     assert config_module.LOG_LEVEL == 'DEBUG'
     assert config_module.CACHE_ENABLED is False
+
+
+@patch.dict(os.environ, {'DOH_UPSTREAM': 'https://1.1.1.1/dns-query,https://1.0.0.1/dns-query'})
+def test_multiple_upstreams_parsing():
+    """Test that multiple comma-separated upstreams are parsed correctly."""
+    import importlib
+    import jadnet_dns_proxy.config as config_module
+    importlib.reload(config_module)
+    
+    assert len(config_module.DOH_UPSTREAMS) == 2
+    assert config_module.DOH_UPSTREAMS[0] == 'https://1.1.1.1/dns-query'
+    assert config_module.DOH_UPSTREAMS[1] == 'https://1.0.0.1/dns-query'
+
+
+@patch.dict(os.environ, {'DOH_UPSTREAM': 'https://1.1.1.1/dns-query, https://1.0.0.1/dns-query , https://dns.google/dns-query'})
+def test_multiple_upstreams_with_spaces():
+    """Test that spaces around comma-separated upstreams are handled correctly."""
+    import importlib
+    import jadnet_dns_proxy.config as config_module
+    importlib.reload(config_module)
+    
+    assert len(config_module.DOH_UPSTREAMS) == 3
+    assert config_module.DOH_UPSTREAMS[0] == 'https://1.1.1.1/dns-query'
+    assert config_module.DOH_UPSTREAMS[1] == 'https://1.0.0.1/dns-query'
+    assert config_module.DOH_UPSTREAMS[2] == 'https://dns.google/dns-query'
 
 
 @patch.dict(os.environ, {'CACHE_ENABLED': 'true'})
@@ -90,3 +116,4 @@ def test_logger_exists():
     
     assert logger is not None
     assert logger.name == "async-doh"
+
