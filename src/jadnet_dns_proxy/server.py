@@ -4,7 +4,7 @@ import signal
 import httpx
 import httpcore
 from dnslib import DNSRecord, QTYPE
-from .bootstrap import CustomDNSNetworkBackend
+from .bootstrap import CustomDNSTransport
 from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE, DOH_UPSTREAMS, BOOTSTRAP_DNS
 from .protocol import DNSProtocol
 from .cache import DNSCache
@@ -92,7 +92,7 @@ async def cleaner_task(cache):
 async def main():
     """Main server entry point."""
     # Use original upstream URLs (no URL rewriting)
-    # DNS resolution will be handled by CustomDNSNetworkBackend
+    # DNS resolution will be handled by CustomDNSTransport
     logger.info(f"Initializing with upstream URLs: {DOH_UPSTREAMS}")
     
     # Create a Queue
@@ -107,16 +107,13 @@ async def main():
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()
     
-    # Create custom network backend that performs DNS resolution while preserving SNI
-    network_backend = CustomDNSNetworkBackend(bootstrap_dns=BOOTSTRAP_DNS)
-    
-    # Create persistent HTTP/2 client with custom network backend
-    # This ensures DNS is resolved manually but hostname is preserved for SNI
+    # Create persistent HTTP/2 client with custom DNS transport
+    # This transport performs DNS resolution while preserving hostname for SNI
     limits = httpx.Limits(max_keepalive_connections=20, max_connections=WORKER_COUNT + 5)
-    transport = httpx.AsyncHTTPTransport(
-        http2=True, 
-        limits=limits, 
-        network_backend=network_backend
+    transport = CustomDNSTransport(
+        bootstrap_dns=BOOTSTRAP_DNS,
+        http2=True,
+        limits=limits
     )
     async with httpx.AsyncClient(transport=transport) as client:
         

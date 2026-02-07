@@ -1,5 +1,6 @@
 """Bootstrap DNS resolution logic."""
 import socket
+import ssl
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 from dnslib import DNSRecord, QTYPE
@@ -142,8 +143,9 @@ class CustomDNSNetworkBackend(httpcore.AsyncNetworkBackend):
         """
         self.bootstrap_dns = bootstrap_dns
         self._dns_cache = {}  # Simple cache: hostname -> (IP, original_hostname)
-        # Use the default backend for actual connections
-        self._default_backend = httpcore.AsyncNetworkBackend()
+        # Use the AutoBackend which automatically selects the appropriate backend
+        from httpcore._backends.auto import AutoBackend
+        self._default_backend = AutoBackend()
     
     async def connect_tcp(
         self,
@@ -265,3 +267,96 @@ class SNIPreservingStream(httpcore.AsyncNetworkStream):
     def get_extra_info(self, info: str):
         """Get extra info from the underlying stream."""
         return self._stream.get_extra_info(info)
+
+
+class CustomDNSTransport(httpx.AsyncHTTPTransport):
+    """
+    Custom HTTP transport that uses CustomDNSNetworkBackend for DNS resolution.
+    
+    This transport extends AsyncHTTPTransport to inject our custom network backend
+    that performs DNS resolution while preserving SNI.
+    """
+    
+    def __init__(
+        self,
+        bootstrap_dns: str = BOOTSTRAP_DNS,
+        verify: httpx._types.VerifyTypes = True,
+        cert: Optional[httpx._types.CertTypes] = None,
+        http1: bool = True,
+        http2: bool = False,
+        limits: httpx.Limits = None,
+        trust_env: bool = True,
+        local_address: Optional[str] = None,
+        retries: int = 0,
+    ):
+        """
+        Initialize custom DNS transport.
+        
+        Args:
+            bootstrap_dns: DNS server to use for resolution
+            All other args are passed to AsyncHTTPTransport
+        """
+        if limits is None:
+            limits = httpx.Limits()
+            
+        # Create SSL context
+        from httpx._config import create_ssl_context
+        ssl_context = create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)
+        
+        # Create custom network backend
+        network_backend = CustomDNSNetworkBackend(bootstrap_dns=bootstrap_dns)
+        
+        # Create connection pool with custom backend
+        self._pool = httpcore.AsyncConnectionPool(
+            ssl_context=ssl_context,
+            max_connections=limits.max_connections,
+            max_keepalive_connections=limits.max_keepalive_connections,
+            keepalive_expiry=limits.keepalive_expiry,
+            http1=http1,
+            http2=http2,
+            local_address=local_address,
+            retries=retries,
+            network_backend=network_backend,
+        )
+    
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        """Handle an async HTTP request."""
+        assert isinstance(request.stream, httpx.AsyncByteStream)
+
+        req = httpcore.Request(
+            method=request.method,
+            url=httpcore.URL(
+                scheme=request.url.raw_scheme,
+                host=request.url.raw_host,
+                port=request.url.port,
+                target=request.url.raw_path,
+            ),
+            headers=request.headers.raw,
+            content=request.stream,
+            extensions=request.extensions,
+        )
+        
+        from httpx._transports.default import map_httpcore_exceptions, AsyncResponseStream
+        with map_httpcore_exceptions():
+            resp = await self._pool.handle_async_request(req)
+
+        assert isinstance(resp.stream, httpx._types.AsyncByteStream)
+
+        return httpx.Response(
+            status_code=resp.status,
+            headers=resp.headers,
+            stream=AsyncResponseStream(resp.stream),
+            extensions=resp.extensions,
+        )
+    
+    async def aclose(self) -> None:
+        """Close the transport."""
+        await self._pool.aclose()
+    
+    async def __aenter__(self):
+        """Enter async context."""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit async context."""
+        await self.aclose()
