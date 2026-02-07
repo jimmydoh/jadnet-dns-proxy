@@ -1,15 +1,28 @@
 # jadnet-dns-proxy
 
-A high-performance DNS-over-HTTPS (DoH) proxy with caching and connection pooling.
+A high-performance DNS-over-HTTPS (DoH) proxy with caching, connection pooling, and multi-upstream load balancing.
+
+## Features
+
+- **Multiple Upstream DoH Servers**: Configure multiple DoH servers with automatic load balancing
+- **Health Tracking**: Monitors upstream server health, response times, and success rates
+- **Load Balancing**: Round-robin distribution across healthy upstream servers
+- **Automatic Failover**: Automatically routes around unhealthy servers
+- **DNS Caching**: Built-in cache with TTL support to reduce upstream requests
+- **High Performance**: Worker pool architecture for concurrent request handling
+- **HTTP/2 Support**: Uses HTTP/2 for efficient upstream connections
 
 ## CI/CD Workflows
 
 This project uses GitHub Actions for automated releases and Docker image builds:
 
-- **Release on Main**: When code is pushed to the `main` branch, a workflow automatically extracts the version from `pyproject.toml` and creates a new GitHub release with the corresponding tag (e.g., `v0.1.0`).
-- **Docker Build & Push**: When a new release tag is created, a separate workflow automatically builds and pushes the Docker image to GitHub Container Registry with the `latest` tag and version-specific tags.
+- **Release on Main**: When code is pushed to the `main` branch, a workflow automatically extracts the version from `pyproject.toml` and creates a new GitHub release with the corresponding tag (e.g., `v0.1.0`). After creating the release, it automatically triggers the Docker build workflow.
+- **Docker Build & Push**: Builds and pushes the Docker image to GitHub Container Registry with the `latest` tag and version-specific semantic versioning tags. This workflow is triggered:
+  - Automatically when the release workflow completes (via workflow_dispatch)
+  - When pushing to `dev` or `development` branches (creates a `dev` tag)
+  - Manually via the Actions tab in GitHub
 
-To trigger a new release, simply update the version in `pyproject.toml` and merge to the `main` branch.
+To trigger a new release, simply update the version in `pyproject.toml` and merge to the `main` branch. The Docker images will be built and published automatically.
 
 ## Project Structure
 
@@ -59,8 +72,37 @@ Configure via environment variables:
 
 - `LISTEN_PORT` - UDP port to listen on (default: 5053)
 - `LISTEN_HOST` - Host address to bind to (default: 0.0.0.0)
-- `DOH_UPSTREAM` - DoH server URL (default: https://cloudflare-dns.com/dns-query)
+- `DOH_UPSTREAM` - DoH server URL(s). Supports single or comma-separated list (default: https://cloudflare-dns.com/dns-query)
+  - Single upstream: `DOH_UPSTREAM=https://1.1.1.1/dns-query`
+  - Multiple upstreams: `DOH_UPSTREAM=https://1.1.1.1/dns-query,https://1.0.0.1/dns-query`
 - `WORKER_COUNT` - Number of worker tasks (default: 10)
 - `QUEUE_SIZE` - Request queue size (default: 1000)
 - `CACHE_ENABLED` - Enable DNS caching (default: true)
 - `LOG_LEVEL` - Logging level (default: INFO)
+
+### Bootstrap DNS Resolution
+
+When the DNS proxy container is the only DNS resolver in an isolated network, it may encounter a chicken-and-egg problem: it needs to resolve the DoH provider's hostname (e.g., `cloudflare-dns.com`) using DNS, but it is itself the DNS resolver.
+
+To solve this, the proxy implements a **bootstrap mechanism** that performs a one-shot raw UDP query to a fallback DNS server (configured via `BOOTSTRAP_DNS`) at startup. This bootstrap query resolves the DoH hostname to an IP address, bypassing the system resolver entirely.
+
+**Key features:**
+- If the `DOH_UPSTREAM` is already an IP address, no bootstrap is performed
+- The bootstrap query is sent directly to `BOOTSTRAP_DNS` via raw UDP (port 53)
+- The resolved IP is used to replace the hostname in the DoH URL
+- On bootstrap failure, the proxy falls back to the original URL (system resolver)
+- Default bootstrap DNS is Google Public DNS (8.8.8.8)
+
+**Example:** If `DOH_UPSTREAM=https://cloudflare-dns.com/dns-query`, the proxy will:
+1. Query `BOOTSTRAP_DNS` (8.8.8.8) for `cloudflare-dns.com`
+2. Replace the hostname with the resolved IP (e.g., `https://104.16.248.249/dns-query`)
+3. Use the IP-based URL for all DoH requests
+
+This ensures the proxy can function correctly even when it's the sole DNS resolver in the network.
+### Multiple Upstream Servers
+
+When multiple upstream servers are configured:
+- Requests are distributed using round-robin load balancing
+- Server health is automatically tracked (response time, success rate)
+- Failed servers are temporarily marked down and skipped
+- Statistics are logged periodically (every 5 minutes)

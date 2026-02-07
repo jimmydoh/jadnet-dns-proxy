@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     
     steps:
       - name: Checkout repository
@@ -71,6 +72,20 @@ jobs:
           gh release create ${{ steps.get_version.outputs.tag }} \
             --title "Release ${{ steps.get_version.outputs.tag }}" \
             --notes-file release_notes.md
+
+      - name: Trigger Docker Build Workflow
+        if: steps.check_tag.outputs.exists == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Wait for GitHub to propagate the newly created tag
+          # The tag is created by gh release create, but there can be a brief delay
+          # before it's available for workflow_dispatch to reference it
+          sleep 5
+          # Trigger the docker build workflow with the new tag
+          gh workflow run docker-build-push.yml \
+            --ref ${{ steps.get_version.outputs.tag }}
+          echo "Triggered Docker build workflow for tag ${{ steps.get_version.outputs.tag }}"
 
       - name: Skip Release
         if: steps.check_tag.outputs.exists == 'true'
