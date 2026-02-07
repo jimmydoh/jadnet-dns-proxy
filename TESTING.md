@@ -135,8 +135,8 @@ Each module has comprehensive unit tests covering:
 ## Continuous Integration
 
 Tests are automatically run via GitHub Actions on:
-- Every push to any branch
-- Every pull request
+- Pushes to the `main`, `dev`, and `develop` branches
+- Pull requests targeting the `main`, `dev`, and `develop` branches
 
 See `.github/workflows/test.yml` for the CI configuration.
 
