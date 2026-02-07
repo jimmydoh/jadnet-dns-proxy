@@ -1,0 +1,39 @@
+"""DoH (DNS over HTTPS) resolver implementation."""
+import httpx
+from dnslib import DNSRecord
+from .config import logger, DOH_UPSTREAM
+
+
+async def resolve_doh(client: httpx.AsyncClient, data: bytes) -> tuple[bytes, int]:
+    """
+    Resolve DNS query via DoH.
+    
+    Args:
+        client: The HTTP client to use for the request
+        data: Raw DNS query bytes
+        
+    Returns:
+        Tuple of (raw_response_bytes, ttl_in_seconds)
+    """
+    headers = {
+        "Content-Type": "application/dns-message",
+        "Accept": "application/dns-message"
+    }
+    
+    try:
+        resp = await client.post(DOH_UPSTREAM, content=data, headers=headers, timeout=4.0)
+        resp.raise_for_status()
+        
+        # Parse response to find TTL
+        parsed = DNSRecord.parse(resp.content)
+        
+        # Find minimum TTL in the answer section to be safe
+        ttl = 300  # Default fallback
+        if parsed.rr:
+            ttl = min(r.ttl for r in parsed.rr)
+            
+        return resp.content, ttl
+        
+    except Exception as e:
+        logger.error(f"DoH Request failed: {e}")
+        return None, 0

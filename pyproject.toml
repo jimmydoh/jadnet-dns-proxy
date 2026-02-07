@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jadnet-dns-proxy"
+version = "1.0.0"
+description = "A high-performance DNS-over-HTTPS proxy"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+dependencies = [
+    "dnslib==0.9.23",
+    "httpx[http2]==0.24.1",
+]
+
+[project.scripts]
+jadnet-dns-proxy = "jadnet_dns_proxy.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
