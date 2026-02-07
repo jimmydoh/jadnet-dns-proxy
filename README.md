@@ -6,10 +6,13 @@ A high-performance DNS-over-HTTPS (DoH) proxy with caching and connection poolin
 
 This project uses GitHub Actions for automated releases and Docker image builds:
 
-- **Release on Main**: When code is pushed to the `main` branch, a workflow automatically extracts the version from `pyproject.toml` and creates a new GitHub release with the corresponding tag (e.g., `v0.1.0`).
-- **Docker Build & Push**: When a new release tag is created, a separate workflow automatically builds and pushes the Docker image to GitHub Container Registry with the `latest` tag and version-specific tags.
+- **Release on Main**: When code is pushed to the `main` branch, a workflow automatically extracts the version from `pyproject.toml` and creates a new GitHub release with the corresponding tag (e.g., `v0.1.0`). After creating the release, it automatically triggers the Docker build workflow.
+- **Docker Build & Push**: Builds and pushes the Docker image to GitHub Container Registry with the `latest` tag and version-specific semantic versioning tags. This workflow is triggered:
+  - Automatically when the release workflow completes (via workflow_dispatch)
+  - When pushing to `dev` or `development` branches (creates a `dev` tag)
+  - Manually via the Actions tab in GitHub
 
-To trigger a new release, simply update the version in `pyproject.toml` and merge to the `main` branch.
+To trigger a new release, simply update the version in `pyproject.toml` and merge to the `main` branch. The Docker images will be built and published automatically.
 
 ## Project Structure
 
