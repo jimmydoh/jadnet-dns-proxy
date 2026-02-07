@@ -54,8 +54,6 @@ class DNSCache:
         if keys_to_remove:
             logger.debug(f"Pruned {len(keys_to_remove)} expired cache entries")
 
-dns_cache = DNSCache()
-
 # --- UDP Protocol ---
 class DNSProtocol(asyncio.DatagramProtocol):
     def __init__(self, queue):
@@ -93,7 +91,11 @@ async def resolve_doh(client: httpx.AsyncClient, data: bytes) -> tuple[bytes, in
         # Find minimum TTL in the answer section to be safe
         ttl = 300 # Default fallback
         if parsed.rr:
+            # Standard Answer TTL
             ttl = min(r.ttl for r in parsed.rr)
+        elif parsed.auth:
+            # Negative Caching (use SOA TTL if available per RFC 2308)
+            ttl = min(r.ttl for r in parsed.auth)
             
         return resp.content, ttl
         
@@ -101,7 +103,7 @@ async def resolve_doh(client: httpx.AsyncClient, data: bytes) -> tuple[bytes, in
         logger.error(f"DoH Request failed: {e}")
         return None, 0
 
-async def worker(name, queue, client):
+async def worker(name, queue, client, cache):
     """
     Consumes packets from queue and processes them.
     """
@@ -119,7 +121,7 @@ async def worker(name, queue, client):
             cache_key = (qname, qtype)
 
             # 2. Check Cache
-            cached_data = dns_cache.get(cache_key)
+            cached_data = cache.get(cache_key)
             
             if cached_data:
                 # We must patch the ID of the cached response to match the current request ID
@@ -136,7 +138,7 @@ async def worker(name, queue, client):
                 
                 if response_bytes:
                     transport.sendto(response_bytes, addr)
-                    dns_cache.set(cache_key, response_bytes, ttl)
+                    cache.set(cache_key, response_bytes, ttl)
                     logger.info(f"[UPSTREAM] {qname} ({qtype}) TTL:{ttl} -> {addr[0]}")
                 
         except Exception as e:
@@ -145,15 +147,18 @@ async def worker(name, queue, client):
             # Notify the queue that the "work item" has been processed.
             queue.task_done()
 
-async def cleaner_task():
+async def cleaner_task(cache):
     """Runs periodically to clean up the cache"""
     while True:
         await asyncio.sleep(60)
-        dns_cache.prune()
+        cache.prune()
 
 async def main():
     # Create a Queue
     queue = asyncio.Queue(maxsize=QUEUE_SIZE)
+    
+    # Instantiate cache
+    cache = DNSCache()
 
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()
@@ -171,11 +176,11 @@ async def main():
         # Start Workers
         tasks = []
         for i in range(WORKER_COUNT):
-            task = asyncio.create_task(worker(f"w-{i}", queue, client))
+            task = asyncio.create_task(worker(f"w-{i}", queue, client, cache))
             tasks.append(task)
             
         # Start Cache Cleaner
-        tasks.append(asyncio.create_task(cleaner_task()))
+        tasks.append(asyncio.create_task(cleaner_task(cache)))
 
         # Graceful Shutdown handling
         stop_event = asyncio.Event()
