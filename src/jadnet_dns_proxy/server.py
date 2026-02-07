@@ -90,10 +90,10 @@ async def cleaner_task(cache):
 
 async def main():
     """Main server entry point."""
-    # 1. Run Bootstrap BEFORE starting the loop
-    # This resolves the URL to an IP-based URL to avoid system resolver loops
-    final_upstream_url = get_upstream_ip(DOH_UPSTREAM)
-    logger.info(f"Using Upstream: {final_upstream_url}")
+    # Bootstrap upstream URLs (resolve hostnames to IPs to avoid DNS loops)
+    logger.info("Bootstrapping upstream URLs...")
+    bootstrapped_upstreams = [get_upstream_ip(url) for url in DOH_UPSTREAMS]
+    logger.info(f"Using Upstreams: {bootstrapped_upstreams}")
     
     # Create a Queue
     queue = asyncio.Queue(maxsize=QUEUE_SIZE)
@@ -101,8 +101,8 @@ async def main():
     # Instantiate cache
     cache = DNSCache()
     
-    # Initialize upstream manager
-    upstream_manager = UpstreamManager(DOH_UPSTREAMS)
+    # Initialize upstream manager with bootstrapped URLs
+    upstream_manager = UpstreamManager(bootstrapped_upstreams)
 
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()
