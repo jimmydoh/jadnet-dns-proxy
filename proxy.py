@@ -93,7 +93,7 @@ async def resolve_doh(client: httpx.AsyncClient, data: bytes) -> tuple[bytes, in
         if parsed.rr:
             # Standard Answer TTL
             ttl = min(r.ttl for r in parsed.rr)
-        elif parsed.auth:
+        elif parsed.auth and len(parsed.auth) > 0:
             # Negative Caching (use SOA TTL if available per RFC 2308)
             ttl = min(r.ttl for r in parsed.auth)
             
