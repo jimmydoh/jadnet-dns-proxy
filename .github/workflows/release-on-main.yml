@@ -41,24 +41,27 @@ jobs:
         id: generate_notes
         run: |
           # Find the previous tag
-          PREV_TAG=$(git tag --sort=-version:refname | grep -v "^${{ steps.get_version.outputs.tag }}$" | head -n 1)
+          PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
           
           # Generate release notes
           if [ -z "$PREV_TAG" ]; then
-            # First release - use all commits
+            # First release - use recent commits (limit to 50 to keep notes manageable)
             echo "## Changes" > release_notes.md
             echo "" >> release_notes.md
-            git log --pretty=format:"- %s (%h)" >> release_notes.md
+            git log --pretty=format:"- %s (%h)" --max-count=50 >> release_notes.md
+            echo "" >> release_notes.md
+            echo "" >> release_notes.md
+            FIRST_COMMIT=$(git rev-list --max-parents=0 HEAD)
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${FIRST_COMMIT}...HEAD" >> release_notes.md
           else
             # Generate changelog from previous tag
             echo "## Changes since $PREV_TAG" > release_notes.md
             echo "" >> release_notes.md
             git log $PREV_TAG..HEAD --pretty=format:"- %s (%h)" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "" >> release_notes.md
+            echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${{ steps.get_version.outputs.tag }}" >> release_notes.md
           fi
-          
-          echo "" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG:-$(git rev-list --max-parents=0 HEAD)}...${{ steps.get_version.outputs.tag }}" >> release_notes.md
 
       - name: Create Release
         if: steps.check_tag.outputs.exists == 'false'
