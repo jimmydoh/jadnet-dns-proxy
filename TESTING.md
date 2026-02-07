@@ -56,6 +56,7 @@ Tests are organized in the `tests/` directory with the following structure:
 ```
 tests/
 ├── __init__.py
+├── test_bootstrap.py   # Tests for bootstrap DNS resolution
 ├── test_cache.py       # Tests for DNS cache functionality
 ├── test_config.py      # Tests for configuration loading
 ├── test_protocol.py    # Tests for UDP protocol handler
@@ -69,15 +70,16 @@ Current test coverage by module:
 
 | Module | Coverage | Notes |
 |--------|----------|-------|
+| `bootstrap.py` | 100% | Full coverage of bootstrap DNS resolution |
 | `cache.py` | 100% | Full coverage of DNS cache functionality |
 | `config.py` | 100% | Full coverage of configuration loading |
 | `protocol.py` | 100% | Full coverage of UDP protocol handler |
-| `resolver.py` | 100% | Full coverage of DoH resolution |
-| `server.py` | ~63% | Core worker functions covered; main entry point not tested |
+| `resolver.py` | 94% | Full coverage of DoH resolution |
+| `server.py` | ~60% | Core worker functions covered; main entry point not tested |
 | `__init__.py` | 100% | Package initialization |
 | `__main__.py` | 0% | Entry point - not covered by automated tests (invoked when running `python -m jadnet_dns_proxy`) |
 
-**Overall Coverage: ~78%**
+**Overall Coverage: ~81%**
 
 ### Coverage Exclusions
 
@@ -93,6 +95,16 @@ The following lines are excluded from coverage requirements:
 ### Unit Tests
 
 Each module has comprehensive unit tests covering:
+
+#### bootstrap.py
+- IP address detection (returns unchanged)
+- Successful hostname resolution via UDP
+- No answer handling (returns original URL)
+- Socket timeout handling
+- Socket error handling
+- Invalid DNS response handling
+- Custom bootstrap DNS server usage
+- Multiple A record handling
 
 #### cache.py
 - Cache initialization
