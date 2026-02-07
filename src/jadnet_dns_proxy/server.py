@@ -3,13 +3,14 @@ import asyncio
 import signal
 import httpx
 from dnslib import DNSRecord, QTYPE
-from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE
+from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE, DOH_UPSTREAMS
 from .protocol import DNSProtocol
 from .cache import DNSCache
 from .resolver import resolve_doh
+from .upstream_manager import UpstreamManager
 
 
-async def worker(name, queue, client, cache):
+async def worker(name, queue, client, cache, upstream_manager):
     """
     Worker that consumes packets from queue and processes them.
     
@@ -18,6 +19,7 @@ async def worker(name, queue, client, cache):
         queue: Asyncio queue containing DNS requests
         client: HTTP client for DoH requests
         cache: DNS cache instance
+        upstream_manager: Manager for upstream servers
     """
     logger.debug(f"Worker {name} started")
     while True:
@@ -46,7 +48,7 @@ async def worker(name, queue, client, cache):
             
             else:
                 # 3. Fetch from DoH
-                response_bytes, ttl = await resolve_doh(client, data)
+                response_bytes, ttl = await resolve_doh(client, data, upstream_manager)
                 
                 if response_bytes:
                     transport.sendto(response_bytes, addr)
@@ -58,6 +60,19 @@ async def worker(name, queue, client, cache):
         finally:
             # Notify the queue that the "work item" has been processed.
             queue.task_done()
+
+
+async def stats_task(upstream_manager):
+    """
+    Periodically logs statistics about upstream servers.
+    
+    Args:
+        upstream_manager: Manager for upstream servers
+    """
+    while True:
+        await asyncio.sleep(300)  # Log stats every 5 minutes
+        upstream_manager.log_stats()
+
 
 
 async def cleaner_task(cache):
@@ -79,6 +94,9 @@ async def main():
     
     # Instantiate cache
     cache = DNSCache()
+    
+    # Initialize upstream manager
+    upstream_manager = UpstreamManager(DOH_UPSTREAMS)
 
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()
@@ -96,12 +114,15 @@ async def main():
         # Start Workers
         tasks = []
         for i in range(WORKER_COUNT):
-            # Pass cache to worker
-            task = asyncio.create_task(worker(f"w-{i}", queue, client, cache))
+            # Pass upstream_manager to worker
+            task = asyncio.create_task(worker(f"w-{i}", queue, client, cache, upstream_manager))
             tasks.append(task)
             
         # Start Cache Cleaner and pass cache
         tasks.append(asyncio.create_task(cleaner_task(cache)))
+        
+        # Start Stats Logger
+        tasks.append(asyncio.create_task(stats_task(upstream_manager)))
 
         # Graceful Shutdown handling
         stop_event = asyncio.Event()
