@@ -3,6 +3,7 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 from dnslib import DNSRecord, QTYPE, RR, A
 from jadnet_dns_proxy.resolver import resolve_doh
+from jadnet_dns_proxy.upstream_manager import UpstreamManager, UpstreamServer
 
 
 @pytest.mark.asyncio
@@ -21,8 +22,13 @@ async def test_resolve_doh_success():
     mock_response.raise_for_status = Mock()
     mock_client.post = AsyncMock(return_value=mock_response)
     
+    # Mock upstream manager
+    mock_upstream = UpstreamServer(url="https://1.1.1.1/dns-query")
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=mock_upstream)
+    
     # Call resolve_doh
-    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), "https://test.example.com/dns-query")
+    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), mock_manager)
     
     # Verify result
     assert result_bytes == response_bytes
@@ -34,6 +40,10 @@ async def test_resolve_doh_success():
     assert call_kwargs['headers']['Content-Type'] == 'application/dns-message'
     assert call_kwargs['headers']['Accept'] == 'application/dns-message'
     assert call_kwargs['timeout'] == 4.0
+    
+    # Verify upstream recorded success
+    assert mock_upstream.total_requests == 1
+    assert mock_upstream.failed_requests == 0
 
 
 @pytest.mark.asyncio
@@ -52,7 +62,11 @@ async def test_resolve_doh_multiple_answers():
     mock_response.raise_for_status = Mock()
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), "https://test.example.com/dns-query")
+    mock_upstream = UpstreamServer(url="https://1.1.1.1/dns-query")
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=mock_upstream)
+    
+    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), mock_manager)
     
     # Should use minimum TTL
     assert ttl == 300
@@ -72,7 +86,11 @@ async def test_resolve_doh_no_answers():
     mock_response.raise_for_status = Mock()
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), "https://test.example.com/dns-query")
+    mock_upstream = UpstreamServer(url="https://1.1.1.1/dns-query")
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=mock_upstream)
+    
+    result_bytes, ttl = await resolve_doh(mock_client, dns_request.pack(), mock_manager)
     
     # Should use default TTL
     assert ttl == 300
@@ -84,11 +102,19 @@ async def test_resolve_doh_http_error():
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(side_effect=Exception("HTTP error"))
     
-    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", "https://test.example.com/dns-query")
+    mock_upstream = UpstreamServer(url="https://1.1.1.1/dns-query")
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=mock_upstream)
+    
+    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", mock_manager)
     
     # Should return None and 0 on error
     assert result_bytes is None
     assert ttl == 0
+    
+    # Verify upstream recorded failure
+    assert mock_upstream.total_requests == 1
+    assert mock_upstream.failed_requests == 1
 
 
 @pytest.mark.asyncio
@@ -99,10 +125,17 @@ async def test_resolve_doh_timeout():
     mock_client = AsyncMock()
     mock_client.post = AsyncMock(side_effect=httpx.TimeoutException("Timeout"))
     
-    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", "https://test.example.com/dns-query")
+    mock_upstream = UpstreamServer(url="https://1.1.1.1/dns-query")
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=mock_upstream)
+    
+    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", mock_manager)
     
     assert result_bytes is None
     assert ttl == 0
+    
+    # Verify upstream recorded failure
+    assert mock_upstream.failed_requests == 1
 
 
 @pytest.mark.asyncio
@@ -117,15 +150,22 @@ async def test_resolve_doh_http_status_error():
     ))
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", "https://test.example.com/dns-query")
+    mock_upstream = UpstreamServer(url="https://1.1.1.1/dns-query")
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=mock_upstream)
+    
+    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", mock_manager)
     
     assert result_bytes is None
     assert ttl == 0
+    
+    # Verify upstream recorded failure
+    assert mock_upstream.failed_requests == 1
 
 
 @pytest.mark.asyncio
-async def test_resolve_doh_uses_config_upstream():
-    """Test that resolve_doh uses the provided upstream URL."""
+async def test_resolve_doh_uses_upstream_from_manager():
+    """Test that resolve_doh uses the upstream from the manager."""
     dns_request = DNSRecord.question("example.com", "A")
     dns_response = dns_request.reply()
     response_bytes = dns_response.pack()
@@ -136,8 +176,29 @@ async def test_resolve_doh_uses_config_upstream():
     mock_response.raise_for_status = Mock()
     mock_client.post = AsyncMock(return_value=mock_response)
     
-    await resolve_doh(mock_client, dns_request.pack(), 'https://custom.example.com/dns-query')
+    mock_upstream = UpstreamServer(url="https://test.example.com/dns-query")
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=mock_upstream)
+    
+    await resolve_doh(mock_client, dns_request.pack(), mock_manager)
     
     # Verify the correct upstream URL was used
     call_args = mock_client.post.call_args
-    assert call_args[0][0] == 'https://custom.example.com/dns-query'
+    assert call_args[0][0] == 'https://test.example.com/dns-query'
+
+
+@pytest.mark.asyncio
+async def test_resolve_doh_no_upstream_available():
+    """Test DoH resolution when no upstream is available."""
+    mock_client = AsyncMock()
+    mock_manager = Mock()
+    mock_manager.get_next_server = AsyncMock(return_value=None)
+    
+    result_bytes, ttl = await resolve_doh(mock_client, b"fake_query", mock_manager)
+    
+    assert result_bytes is None
+    assert ttl == 0
+    
+    # Client should not have been called
+    mock_client.post.assert_not_called()
+

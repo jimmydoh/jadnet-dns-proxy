@@ -1,6 +1,16 @@
 # jadnet-dns-proxy
 
-A high-performance DNS-over-HTTPS (DoH) proxy with caching and connection pooling.
+A high-performance DNS-over-HTTPS (DoH) proxy with caching, connection pooling, and multi-upstream load balancing.
+
+## Features
+
+- **Multiple Upstream DoH Servers**: Configure multiple DoH servers with automatic load balancing
+- **Health Tracking**: Monitors upstream server health, response times, and success rates
+- **Load Balancing**: Round-robin distribution across healthy upstream servers
+- **Automatic Failover**: Automatically routes around unhealthy servers
+- **DNS Caching**: Built-in cache with TTL support to reduce upstream requests
+- **High Performance**: Worker pool architecture for concurrent request handling
+- **HTTP/2 Support**: Uses HTTP/2 for efficient upstream connections
 
 ## CI/CD Workflows
 
@@ -62,8 +72,9 @@ Configure via environment variables:
 
 - `LISTEN_PORT` - UDP port to listen on (default: 5053)
 - `LISTEN_HOST` - Host address to bind to (default: 0.0.0.0)
-- `DOH_UPSTREAM` - DoH server URL (default: https://cloudflare-dns.com/dns-query)
-- `BOOTSTRAP_DNS` - DNS server IP for bootstrapping DoH hostname resolution (default: 8.8.8.8)
+- `DOH_UPSTREAM` - DoH server URL(s). Supports single or comma-separated list (default: https://cloudflare-dns.com/dns-query)
+  - Single upstream: `DOH_UPSTREAM=https://1.1.1.1/dns-query`
+  - Multiple upstreams: `DOH_UPSTREAM=https://1.1.1.1/dns-query,https://1.0.0.1/dns-query`
 - `WORKER_COUNT` - Number of worker tasks (default: 10)
 - `QUEUE_SIZE` - Request queue size (default: 1000)
 - `CACHE_ENABLED` - Enable DNS caching (default: true)
@@ -88,3 +99,10 @@ To solve this, the proxy implements a **bootstrap mechanism** that performs a on
 3. Use the IP-based URL for all DoH requests
 
 This ensures the proxy can function correctly even when it's the sole DNS resolver in the network.
+### Multiple Upstream Servers
+
+When multiple upstream servers are configured:
+- Requests are distributed using round-robin load balancing
+- Server health is automatically tracked (response time, success rate)
+- Failed servers are temporarily marked down and skipped
+- Statistics are logged periodically (every 5 minutes)
