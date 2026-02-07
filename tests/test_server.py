@@ -43,6 +43,7 @@ async def test_worker_cache_hit():
         try:
             await worker_task
         except asyncio.CancelledError:
+            # Expected when shutting down the worker task during the test.
             pass
         
         # Verify sendto was called with response
