@@ -77,8 +77,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Wait a moment for the tag to be available
+          sleep 5
+          # Trigger the docker build workflow with the new tag
           gh workflow run docker-build-push.yml \
             --ref ${{ steps.get_version.outputs.tag }}
+          echo "Triggered Docker build workflow for tag ${{ steps.get_version.outputs.tag }}"
 
       - name: Skip Release
         if: steps.check_tag.outputs.exists == 'true'
