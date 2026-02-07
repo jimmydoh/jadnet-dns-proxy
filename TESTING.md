@@ -75,7 +75,7 @@ Current test coverage by module:
 | `resolver.py` | 100% | Full coverage of DoH resolution |
 | `server.py` | ~63% | Core worker functions covered; main entry point not tested |
 | `__init__.py` | 100% | Package initialization |
-| `__main__.py` | 0% | Entry point - tested via integration tests |
+| `__main__.py` | 0% | Entry point - not covered by automated tests (invoked when running `python -m jadnet_dns_proxy`) |
 
 **Overall Coverage: ~78%**
 
