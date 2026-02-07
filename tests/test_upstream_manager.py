@@ -29,7 +29,7 @@ class TestUpstreamServer:
         assert server.failed_requests == 0
         assert len(server.response_times) == 1
         assert server.response_times[0] == 0.150
-        assert server.avg_response_time == 0.150
+        assert server.avg_response_time == pytest.approx(0.150)
         assert server.success_rate == 100.0
         assert server.is_up is True
     
@@ -44,7 +44,7 @@ class TestUpstreamServer:
         assert server.total_requests == 3
         assert server.failed_requests == 0
         assert len(server.response_times) == 3
-        assert server.avg_response_time == 0.150
+        assert server.avg_response_time == pytest.approx(0.150)
         assert server.success_rate == 100.0
     
     def test_record_failure(self):
