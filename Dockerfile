@@ -6,10 +6,12 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy source files from src directory
+COPY src/ ./src/
+COPY pyproject.toml .
 
-COPY proxy.py .
+# Install the package and its dependencies
+RUN pip install --no-cache-dir .
 
 # Healthcheck to ensure the port is open
 HEALTHCHECK --interval=30s --timeout=3s \
@@ -17,4 +19,4 @@ HEALTHCHECK --interval=30s --timeout=3s \
 
 EXPOSE 5053/udp
 
-CMD ["python", "proxy.py"]
+CMD ["python", "-m", "jadnet_dns_proxy"]

@@ -1,2 +1,0 @@
-dnslib==0.9.23
-httpx[http2]==0.24.1
