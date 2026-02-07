@@ -30,7 +30,11 @@ async def resolve_doh(client: httpx.AsyncClient, data: bytes) -> tuple[bytes, in
         # Find minimum TTL in the answer section to be safe
         ttl = 300  # Default fallback
         if parsed.rr:
+            # Standard Answer TTL
             ttl = min(r.ttl for r in parsed.rr)
+        elif parsed.auth:
+            # Negative Caching (use SOA TTL if available)
+            ttl = min(r.ttl for r in parsed.auth)
             
         return resp.content, ttl
         
