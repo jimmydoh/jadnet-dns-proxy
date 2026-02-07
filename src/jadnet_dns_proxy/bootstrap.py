@@ -1,6 +1,6 @@
 """Bootstrap DNS resolution logic."""
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 from dnslib import DNSRecord, QTYPE
 from .config import logger, BOOTSTRAP_DNS
 
@@ -50,10 +50,9 @@ def get_upstream_ip(upstream_url: str) -> str:
                 ip = str(rr.rdata)
                 logger.info(f"Resolved {hostname} -> {ip}")
                 
-                # Replace hostname with IP in the URL
-                # Note: This relies on the DoH provider having a valid cert for the IP 
-                # (Cloudflare/Google/Quad9 all do).
-                new_url = upstream_url.replace(hostname, ip)
+                # Replace hostname with IP in the URL using urlunparse for safety
+                # This ensures only the netloc (hostname:port) is replaced
+                new_url = urlunparse(parsed._replace(netloc=ip if not parsed.port else f"{ip}:{parsed.port}"))
                 return new_url
                 
         logger.warning(f"Could not resolve {hostname} via bootstrap. Using original URL.")
