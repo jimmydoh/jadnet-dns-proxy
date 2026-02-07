@@ -1,0 +1,20 @@
+services:
+  jadnet-dns-proxy:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "5054:5053/udp"
+    environment:
+      - LISTEN_PORT=5053
+      - DOH_UPSTREAM=https://1.1.1.1/dns-query
+      # - DOH_UPSTREAM=https://dns.google/dns-query # Alternate
+      - WORKER_COUNT=20       # Scale up for high volume
+      - QUEUE_SIZE=2000       # Buffer size for spikes
+      - CACHE_ENABLED=true
+      - LOG_LEVEL=INFO
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        
