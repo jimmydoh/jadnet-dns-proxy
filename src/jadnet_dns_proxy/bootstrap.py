@@ -280,8 +280,8 @@ class CustomDNSTransport(httpx.AsyncHTTPTransport):
     def __init__(
         self,
         bootstrap_dns: str = BOOTSTRAP_DNS,
-        verify: httpx._types.VerifyTypes = True,
-        cert: Optional[httpx._types.CertTypes] = None,
+        verify=True,
+        cert=None,
         http1: bool = True,
         http2: bool = False,
         limits: httpx.Limits = None,
@@ -294,14 +294,20 @@ class CustomDNSTransport(httpx.AsyncHTTPTransport):
         
         Args:
             bootstrap_dns: DNS server to use for resolution
-            All other args are passed to AsyncHTTPTransport
+            verify: SSL certificate verification (bool, str path, or SSLContext)
+            cert: Client certificate (str path or tuple)
+            http1: Enable HTTP/1.1
+            http2: Enable HTTP/2
+            limits: Connection pool limits
+            trust_env: Trust system environment for proxy/auth
+            local_address: Local address to bind to
+            retries: Number of retries
         """
         if limits is None:
             limits = httpx.Limits()
             
-        # Create SSL context
-        from httpx._config import create_ssl_context
-        ssl_context = create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)
+        # Create SSL context using httpx's public create_ssl_context function
+        ssl_context = httpx.create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)
         
         # Create custom network backend
         network_backend = CustomDNSNetworkBackend(bootstrap_dns=bootstrap_dns)
@@ -336,16 +342,57 @@ class CustomDNSTransport(httpx.AsyncHTTPTransport):
             extensions=request.extensions,
         )
         
-        from httpx._transports.default import map_httpcore_exceptions, AsyncResponseStream
-        with map_httpcore_exceptions():
+        # Map httpcore exceptions to httpx exceptions
+        try:
             resp = await self._pool.handle_async_request(req)
+        except httpcore.ConnectError as exc:
+            raise httpx.ConnectError(str(exc)) from exc
+        except httpcore.ConnectTimeout as exc:
+            raise httpx.ConnectTimeout(str(exc)) from exc
+        except httpcore.ReadTimeout as exc:
+            raise httpx.ReadTimeout(str(exc)) from exc
+        except httpcore.WriteTimeout as exc:
+            raise httpx.WriteTimeout(str(exc)) from exc
+        except httpcore.CloseError as exc:
+            raise httpx.CloseError(str(exc)) from exc
+        except httpcore.ReadError as exc:
+            raise httpx.ReadError(str(exc)) from exc
+        except httpcore.WriteError as exc:
+            raise httpx.WriteError(str(exc)) from exc
+        except httpcore.PoolTimeout as exc:
+            raise httpx.PoolTimeout(str(exc)) from exc
+        except httpcore.ProtocolError as exc:
+            raise httpx.ProtocolError(str(exc)) from exc
+        except httpcore.LocalProtocolError as exc:
+            raise httpx.LocalProtocolError(str(exc)) from exc
+        except httpcore.RemoteProtocolError as exc:
+            raise httpx.RemoteProtocolError(str(exc)) from exc
+        except httpcore.ProxyError as exc:
+            raise httpx.ProxyError(str(exc)) from exc
+        except httpcore.UnsupportedProtocol as exc:
+            raise httpx.UnsupportedProtocol(str(exc)) from exc
+        except httpcore.NetworkError as exc:
+            raise httpx.NetworkError(str(exc)) from exc
 
-        assert isinstance(resp.stream, httpx._types.AsyncByteStream)
+        # Wrap the response stream in an async-compatible wrapper
+        # The response stream is an async iterable
+        async def aiter_raw():
+            async for chunk in resp.stream:
+                yield chunk
+        
+        # Create a custom stream class
+        class CustomAsyncStream(httpx.AsyncByteStream):
+            def __init__(self, raw_stream):
+                self._raw_stream = raw_stream
+            
+            async def __aiter__(self):
+                async for chunk in self._raw_stream:
+                    yield chunk
 
         return httpx.Response(
             status_code=resp.status,
             headers=resp.headers,
-            stream=AsyncResponseStream(resp.stream),
+            stream=CustomAsyncStream(resp.stream),
             extensions=resp.extensions,
         )
     
