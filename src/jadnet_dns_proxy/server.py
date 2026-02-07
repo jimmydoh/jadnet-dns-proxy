@@ -136,8 +136,11 @@ async def main():
             logger.info("Shutdown signal received.")
             stop_event.set()
             
-        loop.add_signal_handler(signal.SIGTERM, signal_handler)
-        loop.add_signal_handler(signal.SIGINT, signal_handler)
+        try:
+            loop.add_signal_handler(signal.SIGTERM, signal_handler)
+            loop.add_signal_handler(signal.SIGINT, signal_handler)
+        except NotImplementedError:
+            logger.warning("Signal handlers not supported on this platform (Windows?)")
 
         await stop_event.wait()
         
