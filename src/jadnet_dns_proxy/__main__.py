@@ -1,9 +1,18 @@
 """Entry point for jadnet-dns-proxy."""
 import asyncio
-from .server import main
+from .server import main as server_main
 
-if __name__ == "__main__":
+__all__ = ['main']
+
+
+def main():
+    """Main entry point for the jadnet-dns-proxy console script."""
     try:
-        asyncio.run(main())
+        asyncio.run(server_main())
     except KeyboardInterrupt:
         pass
+
+
+if __name__ == "__main__":
+    main()
+
