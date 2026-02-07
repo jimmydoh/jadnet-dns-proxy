@@ -70,7 +70,6 @@ class UpstreamManager:
         
         self.servers = [UpstreamServer(url=url) for url in upstream_urls]
         self.current_index = 0
-        self.lock = asyncio.Lock()
         logger.info(f"Initialized upstream manager with {len(self.servers)} servers: {upstream_urls}")
     
     async def get_next_server(self) -> Optional[UpstreamServer]:
@@ -81,24 +80,23 @@ class UpstreamManager:
         Returns:
             UpstreamServer instance or None if all servers are down
         """
-        async with self.lock:
-            # First, try to find an "up" server
-            up_servers = [s for s in self.servers if s.is_up]
-            
-            if up_servers:
-                # Round-robin through up servers
-                server = up_servers[self.current_index % len(up_servers)]
-                self.current_index = (self.current_index + 1) % len(up_servers)
-                return server
-            
-            # If all servers are down, try to recover by returning the least bad one
-            if self.servers:
-                # Sort by success rate and return the best one
-                best_server = max(self.servers, key=lambda s: s.success_rate)
-                logger.warning(f"All servers down, attempting recovery with {best_server.url}")
-                return best_server
-            
-            return None
+        # First, try to find an "up" server
+        up_servers = [s for s in self.servers if s.is_up]
+        
+        if up_servers:
+            # Round-robin through up servers
+            server = up_servers[self.current_index % len(up_servers)]
+            self.current_index = (self.current_index + 1) % len(up_servers)
+            return server
+        
+        # If all servers are down, try to recover by returning the least bad one
+        if self.servers:
+            # Sort by success rate and return the best one
+            best_server = max(self.servers, key=lambda s: s.success_rate)
+            logger.warning(f"All servers down, attempting recovery with {best_server.url}")
+            return best_server
+        
+        return None
     
     def get_stats(self) -> List[dict]:
         """
