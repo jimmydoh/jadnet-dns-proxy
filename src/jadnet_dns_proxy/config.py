@@ -24,6 +24,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("async-doh")
 
-# Set httpx and httpcore loggers to DEBUG level to avoid INFO level HTTP POST logging
-logging.getLogger("httpx").setLevel(logging.DEBUG)
-logging.getLogger("httpcore").setLevel(logging.DEBUG)
+# Set httpx and httpcore loggers to WARNING level to suppress verbose HTTP logging
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
