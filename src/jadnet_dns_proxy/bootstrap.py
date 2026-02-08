@@ -1,5 +1,6 @@
 """Bootstrap DNS resolution logic."""
 import socket
+import ipaddress
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 from dnslib import DNSRecord, QTYPE
@@ -25,11 +26,11 @@ def get_upstream_ip(upstream_url: str) -> str:
     parsed = urlparse(upstream_url)
     hostname = parsed.hostname
     
-    # 1. Check if it's already an IP
+    # 1. Check if it's already an IP (IPv4 or IPv6)
     try:
-        socket.inet_aton(hostname)
-        return upstream_url  # It is an IPv4
-    except socket.error:
+        ipaddress.ip_address(hostname)
+        return upstream_url  # It is an IP literal
+    except ValueError:
         pass  # It is a hostname
 
     logger.info(f"Bootstrapping upstream '{hostname}' via {BOOTSTRAP_DNS}...")
@@ -80,11 +81,11 @@ def resolve_hostname_to_ip(hostname: str, bootstrap_dns: str = BOOTSTRAP_DNS) ->
     Returns:
         The resolved IP address as a string, or None if resolution failed
     """
-    # Check if it's already an IP
+    # Check if it's already an IP (IPv4 or IPv6)
     try:
-        socket.inet_aton(hostname)
-        return hostname  # It is already an IPv4
-    except socket.error:
+        ipaddress.ip_address(hostname)
+        return hostname  # It is already an IP literal
+    except ValueError:
         pass  # It is a hostname
     
     logger.debug(f"Resolving '{hostname}' via {bootstrap_dns}...")
@@ -165,11 +166,16 @@ class CustomDNSNetworkBackend(httpcore.AsyncNetworkBackend):
                 self._dns_cache[host] = (resolved_ip, host)
                 logger.info(f"Cached DNS: {host} -> {resolved_ip}")
             else:
-                # If resolution failed or it's already an IP, cache as-is
-                self._dns_cache[host] = (host, host)
+                # If resolution failed, do NOT cache the failure
+                # This allows retries on subsequent connection attempts
+                logger.warning(f"Bootstrap resolution failed for {host}, will retry on next connection")
         
-        # Get the resolved IP and original hostname from cache
-        resolved_ip, original_host = self._dns_cache[host]
+        # Get the resolved IP and original hostname from cache, or use host as-is if not cached
+        if host in self._dns_cache:
+            resolved_ip, original_host = self._dns_cache[host]
+        else:
+            # Resolution failed, use the host as-is (system DNS fallback)
+            resolved_ip, original_host = host, host
         
         # Connect to the resolved IP
         stream = await self._default_backend.connect_tcp(
