@@ -1,8 +1,9 @@
 """Unit tests for the server module."""
 import asyncio
+import signal
 from unittest.mock import Mock, AsyncMock, patch
 from dnslib import DNSRecord, QTYPE, RR, A
-from jadnet_dns_proxy.server import worker, cleaner_task, stats_task
+from jadnet_dns_proxy.server import worker, cleaner_task, stats_task, main
 from jadnet_dns_proxy.cache import DNSCache
 from jadnet_dns_proxy.upstream_manager import UpstreamManager
 
@@ -295,4 +296,210 @@ async def test_worker_task_done_called():
         
         # Verify task_done was called
         assert task_done_called
+
+
+@pytest.mark.asyncio
+async def test_worker_cache_hit_debug_logging(caplog):
+    """Test that cache hit logs at DEBUG level."""
+    import logging
+    caplog.set_level(logging.DEBUG)
+    
+    queue = asyncio.Queue()
+    
+    # Create a DNS request
+    request = DNSRecord.question("cached.example.com", "A")
+    request_bytes = request.pack()
+    
+    # Create a cached response
+    response = request.reply()
+    response.add_answer(RR("cached.example.com", QTYPE.A, rdata=A("1.2.3.4"), ttl=300))
+    cached_bytes = response.pack()
+    
+    # Create mock cache that returns data
+    mock_cache = Mock()
+    mock_cache.get = Mock(return_value=cached_bytes)
+    
+    # Setup queue item
+    transport = Mock()
+    transport.sendto = Mock()
+    addr = ("127.0.0.1", 12345)
+    await queue.put((request_bytes, addr, transport))
+    
+    # Setup mock client
+    mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
+    # Create worker task
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    
+    # Wait for the queued item to be processed
+    await queue.join()
+    
+    # Cancel worker
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Verify that cache hit was logged at DEBUG level
+    assert any("[CACHE] cached.example.com." in record.message for record in caplog.records if record.levelname == "DEBUG")
+
+
+@pytest.mark.asyncio
+async def test_worker_upstream_request_debug_logging(caplog):
+    """Test that upstream request logs at DEBUG level."""
+    import logging
+    caplog.set_level(logging.DEBUG)
+    
+    queue = asyncio.Queue()
+    
+    # Create a DNS request
+    request = DNSRecord.question("uncached.example.com", "A")
+    request_bytes = request.pack()
+    
+    # Create a DoH response
+    response = request.reply()
+    response.add_answer(RR("uncached.example.com", QTYPE.A, rdata=A("5.6.7.8"), ttl=600))
+    response_bytes = response.pack()
+    
+    # Create mock cache that returns None (cache miss)
+    mock_cache = Mock()
+    mock_cache.get = Mock(return_value=None)
+    mock_cache.set = Mock()
+    
+    # Setup queue item
+    transport = Mock()
+    transport.sendto = Mock()
+    addr = ("192.168.1.1", 54321)
+    await queue.put((request_bytes, addr, transport))
+    
+    # Setup mock client
+    mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
+    with patch('jadnet_dns_proxy.server.resolve_doh', 
+               return_value=(response_bytes, 600)):
+        
+        # Create worker task
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+        
+        # Wait for the queued item to be processed
+        await queue.join()
+        
+        # Cancel worker
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+        
+        # Verify that upstream request was logged at DEBUG level
+        assert any("[UPSTREAM] uncached.example.com." in record.message for record in caplog.records if record.levelname == "DEBUG")
+
+
+@pytest.mark.asyncio
+async def test_worker_no_verbose_logging_at_info_level(caplog):
+    """Test that per-request logs don't appear at INFO level."""
+    import logging
+    caplog.set_level(logging.INFO)
+    
+    queue = asyncio.Queue()
+    
+    # Create a DNS request
+    request = DNSRecord.question("test.example.com", "A")
+    request_bytes = request.pack()
+    
+    # Create a cached response
+    response = request.reply()
+    response.add_answer(RR("test.example.com", QTYPE.A, rdata=A("1.2.3.4"), ttl=300))
+    cached_bytes = response.pack()
+    
+    # Create mock cache that returns data
+    mock_cache = Mock()
+    mock_cache.get = Mock(return_value=cached_bytes)
+    
+    # Setup queue item
+    transport = Mock()
+    transport.sendto = Mock()
+    addr = ("127.0.0.1", 12345)
+    await queue.put((request_bytes, addr, transport))
+    
+    # Setup mock client
+    mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
+    # Create worker task
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    
+    # Wait for the queued item to be processed
+    await queue.join()
+    
+    # Cancel worker
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Verify that per-request logs don't appear at INFO level
+    info_records = [record for record in caplog.records if record.levelname == "INFO"]
+    assert not any("[CACHE]" in record.message for record in info_records)
+    assert not any("[UPSTREAM]" in record.message for record in info_records)
+async def test_main_signal_handler_not_implemented():
+    """Test that main() handles NotImplementedError for signal handlers (Windows compatibility)."""
+    # Mock all the dependencies
+    with patch('jadnet_dns_proxy.server.get_upstream_ip') as mock_bootstrap, \
+         patch('jadnet_dns_proxy.server.httpx.AsyncClient') as mock_client_class, \
+         patch('jadnet_dns_proxy.server.asyncio.get_running_loop') as mock_get_loop, \
+         patch('jadnet_dns_proxy.server.asyncio.create_task') as mock_create_task, \
+         patch('jadnet_dns_proxy.server.asyncio.Event') as mock_event_class, \
+         patch('jadnet_dns_proxy.server.logger') as mock_logger:
+        
+        # Setup bootstrap to return test URLs
+        mock_bootstrap.return_value = "https://1.1.1.1/dns-query"
+        
+        # Setup mock loop
+        mock_loop = Mock()
+        mock_get_loop.return_value = mock_loop
+        
+        # Mock the loop.create_datagram_endpoint to return transport and protocol
+        mock_transport = Mock()
+        mock_protocol = Mock()
+        mock_loop.create_datagram_endpoint = AsyncMock(return_value=(mock_transport, mock_protocol))
+        
+        # Make add_signal_handler raise NotImplementedError (simulating Windows)
+        mock_loop.add_signal_handler = Mock(side_effect=NotImplementedError("Signal handlers not supported"))
+        
+        # Setup mock event
+        mock_event = Mock()
+        mock_event_class.return_value = mock_event
+        
+        # Make the event.wait() return immediately to avoid blocking
+        mock_event.wait = AsyncMock()
+        
+        # Setup mock client context manager
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+        
+        # Setup mock tasks
+        mock_task = Mock()
+        mock_task.cancel = Mock()
+        mock_create_task.return_value = mock_task
+        
+        # Mock asyncio.gather to return immediately
+        with patch('jadnet_dns_proxy.server.asyncio.gather', new_callable=AsyncMock):
+            # Run main
+            await main()
+        
+        # Verify that add_signal_handler was called (and raised NotImplementedError)
+        assert mock_loop.add_signal_handler.called
+        
+        # Verify that the warning was logged about signal handlers not being supported
+        warning_calls = [call for call in mock_logger.warning.call_args_list 
+                         if "Signal handlers not supported" in str(call)]
+        assert len(warning_calls) == 1
+        assert "Windows systems" in str(warning_calls[0])
 
