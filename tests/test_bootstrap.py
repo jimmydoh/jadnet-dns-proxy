@@ -156,3 +156,183 @@ def test_get_upstream_ip_multiple_answers():
     
     # Should use first A record
     assert result == "https://1.1.1.1/dns-query"
+
+
+def test_bootstrap_cache_success():
+    """Test that successful resolutions are cached with long TTL."""
+    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache, get_bootstrap_cache, SUCCESS_TTL
+    import time
+    
+    # Clear cache before test
+    clear_bootstrap_cache()
+    
+    upstream_url = "https://cache-test.example.com/dns-query"
+    
+    # Create a mock DNS response
+    dns_query = DNSRecord.question("cache-test.example.com", "A")
+    dns_response = dns_query.reply()
+    dns_response.add_answer(RR("cache-test.example.com", QTYPE.A, rdata=A("10.0.0.1"), ttl=300))
+    response_bytes = dns_response.pack()
+    
+    # Mock socket operations
+    mock_socket = MagicMock()
+    mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
+    
+    with patch('socket.socket', return_value=mock_socket):
+        with patch('time.time', return_value=1000.0):
+            result = get_upstream_ip(upstream_url)
+    
+    # Should resolve successfully
+    assert result == "https://10.0.0.1/dns-query"
+    
+    # Check cache - should have entry with long TTL
+    cache = get_bootstrap_cache()
+    assert "cache-test.example.com" in cache
+    cached_url, expiration, is_success = cache["cache-test.example.com"]
+    assert cached_url == "https://10.0.0.1/dns-query"
+    assert is_success is True
+    assert expiration == 1000.0 + SUCCESS_TTL  # 1 hour from now
+    
+    # Second call should use cache (no socket call)
+    with patch('socket.socket') as mock_socket_2:
+        with patch('time.time', return_value=1001.0):  # 1 second later
+            result2 = get_upstream_ip(upstream_url)
+    
+    assert result2 == "https://10.0.0.1/dns-query"
+    mock_socket_2.assert_not_called()  # Cache was used, no socket call
+    
+    # Clean up
+    clear_bootstrap_cache()
+
+
+def test_bootstrap_cache_failure_short_ttl():
+    """Test that failures are cached with short TTL to allow retry."""
+    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache, get_bootstrap_cache, FAILURE_TTL
+    import time
+    
+    # Clear cache before test
+    clear_bootstrap_cache()
+    
+    upstream_url = "https://fail-test.example.com/dns-query"
+    
+    # Mock socket to raise timeout
+    mock_socket = MagicMock()
+    mock_socket.recvfrom.side_effect = socket.timeout("Timeout")
+    
+    with patch('socket.socket', return_value=mock_socket):
+        with patch('time.time', return_value=2000.0):
+            result = get_upstream_ip(upstream_url)
+    
+    # Should return original URL on failure
+    assert result == upstream_url
+    
+    # Check cache - should have entry with short TTL
+    cache = get_bootstrap_cache()
+    assert "fail-test.example.com" in cache
+    cached_url, expiration, is_success = cache["fail-test.example.com"]
+    assert cached_url == upstream_url
+    assert is_success is False
+    assert expiration == 2000.0 + FAILURE_TTL  # 30 seconds from now
+    
+    # Second call within TTL should use cache (no retry)
+    with patch('socket.socket') as mock_socket_2:
+        with patch('time.time', return_value=2010.0):  # 10 seconds later, still within 30s TTL
+            result2 = get_upstream_ip(upstream_url)
+    
+    assert result2 == upstream_url
+    mock_socket_2.assert_not_called()  # Cache was used
+    
+    # Clean up
+    clear_bootstrap_cache()
+
+
+def test_bootstrap_cache_expiration_retry():
+    """Test that expired cache entries trigger a retry."""
+    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache, get_bootstrap_cache, FAILURE_TTL
+    import time
+    
+    # Clear cache before test
+    clear_bootstrap_cache()
+    
+    upstream_url = "https://retry-test.example.com/dns-query"
+    
+    # First call - timeout (failure)
+    mock_socket_fail = MagicMock()
+    mock_socket_fail.recvfrom.side_effect = socket.timeout("Timeout")
+    
+    with patch('socket.socket', return_value=mock_socket_fail):
+        with patch('time.time', return_value=3000.0):
+            result1 = get_upstream_ip(upstream_url)
+    
+    assert result1 == upstream_url
+    
+    # Cache should have failed entry
+    cache = get_bootstrap_cache()
+    assert "retry-test.example.com" in cache
+    _, expiration, is_success = cache["retry-test.example.com"]
+    assert is_success is False
+    
+    # Second call after TTL expires - now succeeds
+    dns_query = DNSRecord.question("retry-test.example.com", "A")
+    dns_response = dns_query.reply()
+    dns_response.add_answer(RR("retry-test.example.com", QTYPE.A, rdata=A("10.0.0.2"), ttl=300))
+    response_bytes = dns_response.pack()
+    
+    mock_socket_success = MagicMock()
+    mock_socket_success.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
+    
+    # After TTL expires (30 seconds + 1)
+    with patch('socket.socket', return_value=mock_socket_success):
+        with patch('time.time', return_value=3000.0 + FAILURE_TTL + 1):
+            result2 = get_upstream_ip(upstream_url)
+    
+    # Should resolve successfully now
+    assert result2 == "https://10.0.0.2/dns-query"
+    
+    # Cache should now have successful entry
+    cache = get_bootstrap_cache()
+    cached_url, _, is_success = cache["retry-test.example.com"]
+    assert cached_url == "https://10.0.0.2/dns-query"
+    assert is_success is True
+    
+    # Clean up
+    clear_bootstrap_cache()
+
+
+def test_bootstrap_cache_bypass():
+    """Test that cache can be bypassed with use_cache=False."""
+    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache
+    
+    # Clear cache before test
+    clear_bootstrap_cache()
+    
+    upstream_url = "https://bypass-test.example.com/dns-query"
+    
+    # Create a mock DNS response
+    dns_query = DNSRecord.question("bypass-test.example.com", "A")
+    dns_response = dns_query.reply()
+    dns_response.add_answer(RR("bypass-test.example.com", QTYPE.A, rdata=A("10.0.0.3"), ttl=300))
+    response_bytes = dns_response.pack()
+    
+    # Mock socket operations
+    mock_socket = MagicMock()
+    mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
+    
+    # First call with caching
+    with patch('socket.socket', return_value=mock_socket):
+        result1 = get_upstream_ip(upstream_url, use_cache=True)
+    
+    assert result1 == "https://10.0.0.3/dns-query"
+    assert mock_socket.sendto.call_count == 1
+    
+    # Second call with cache bypass should make another DNS query
+    mock_socket.reset_mock()
+    with patch('socket.socket', return_value=mock_socket):
+        result2 = get_upstream_ip(upstream_url, use_cache=False)
+    
+    assert result2 == "https://10.0.0.3/dns-query"
+    assert mock_socket.sendto.call_count == 1  # Made another query despite cache
+    
+    # Clean up
+    clear_bootstrap_cache()
+

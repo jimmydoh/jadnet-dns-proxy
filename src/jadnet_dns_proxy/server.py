@@ -88,6 +88,36 @@ async def cleaner_task(cache):
         cache.prune()
 
 
+async def bootstrap_retry_task(upstream_manager, original_upstreams):
+    """
+    Periodically retries failed bootstrap resolutions.
+    
+    This task checks every 60 seconds if any bootstrap resolutions have expired.
+    If a failed resolution has expired, it will retry the bootstrap process.
+    If successful, it updates the upstream manager with the new resolved URL.
+    
+    Args:
+        upstream_manager: Manager for upstream servers
+        original_upstreams: List of original upstream URLs (before bootstrap)
+    """
+    while True:
+        await asyncio.sleep(60)  # Check every minute
+        
+        # Retry bootstrap for each original upstream
+        for original_url in original_upstreams:
+            new_url = get_upstream_ip(original_url, use_cache=True)
+            
+            # Check if the URL changed (successful bootstrap resolution)
+            # Find the corresponding server in upstream_manager and update if needed
+            for server in upstream_manager.servers:
+                # Match by checking if the original URL is related to this server's URL
+                if original_url in [server.url, new_url]:
+                    if server.url != new_url and new_url != original_url:
+                        logger.info(f"Bootstrap retry succeeded: {original_url} -> {new_url}")
+                        server.url = new_url
+                        break
+
+
 async def main():
     """Main server entry point."""
     # Bootstrap upstream URLs (resolve hostnames to IPs to avoid DNS loops)
@@ -129,6 +159,9 @@ async def main():
         
         # Start Stats Logger
         tasks.append(asyncio.create_task(stats_task(upstream_manager)))
+        
+        # Start Bootstrap Retry Task
+        tasks.append(asyncio.create_task(bootstrap_retry_task(upstream_manager, DOH_UPSTREAMS)))
 
         # Graceful Shutdown handling
         stop_event = asyncio.Event()
