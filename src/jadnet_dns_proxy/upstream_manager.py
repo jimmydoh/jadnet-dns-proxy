@@ -16,6 +16,12 @@ class UpstreamServer:
     failed_requests: int = 0
     response_times: List[float] = field(default_factory=list)
     last_check: float = field(default_factory=time.time)
+    original_url: str = None  # Track original URL before bootstrap resolution
+    
+    def __post_init__(self):
+        """Initialize original_url if not provided."""
+        if self.original_url is None:
+            self.original_url = self.url
     
     @property
     def avg_response_time(self) -> float:
@@ -58,17 +64,25 @@ class UpstreamServer:
 class UpstreamManager:
     """Manages multiple DoH upstream servers with load balancing."""
     
-    def __init__(self, upstream_urls: List[str]):
+    def __init__(self, upstream_urls: List[str], original_urls: List[str] = None):
         """
         Initialize the upstream manager.
         
         Args:
-            upstream_urls: List of DoH server URLs
+            upstream_urls: List of DoH server URLs (potentially resolved to IPs)
+            original_urls: List of original URLs before bootstrap resolution (optional)
         """
         if not upstream_urls:
             raise ValueError("At least one upstream URL must be provided")
         
-        self.servers = [UpstreamServer(url=url) for url in upstream_urls]
+        # If original_urls not provided, use upstream_urls as original
+        if original_urls is None:
+            original_urls = upstream_urls
+        
+        self.servers = [
+            UpstreamServer(url=url, original_url=orig_url) 
+            for url, orig_url in zip(upstream_urls, original_urls)
+        ]
         self.current_index = 0
         self.lock = asyncio.Lock()
         logger.info(f"Initialized upstream manager with {len(self.servers)} servers: {upstream_urls}")

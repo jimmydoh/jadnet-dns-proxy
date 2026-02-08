@@ -1,9 +1,16 @@
 """Unit tests for the bootstrap module."""
 import pytest
+import time
 from unittest.mock import Mock, patch, MagicMock
 import socket
 from dnslib import DNSRecord, QTYPE, RR, A
-from jadnet_dns_proxy.bootstrap import get_upstream_ip
+from jadnet_dns_proxy.bootstrap import (
+    get_upstream_ip, 
+    clear_bootstrap_cache, 
+    get_bootstrap_cache, 
+    SUCCESS_TTL, 
+    FAILURE_TTL
+)
 
 
 def test_get_upstream_ip_already_ip():
@@ -160,9 +167,6 @@ def test_get_upstream_ip_multiple_answers():
 
 def test_bootstrap_cache_success():
     """Test that successful resolutions are cached with long TTL."""
-    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache, get_bootstrap_cache, SUCCESS_TTL
-    import time
-    
     # Clear cache before test
     clear_bootstrap_cache()
     
@@ -207,9 +211,6 @@ def test_bootstrap_cache_success():
 
 def test_bootstrap_cache_failure_short_ttl():
     """Test that failures are cached with short TTL to allow retry."""
-    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache, get_bootstrap_cache, FAILURE_TTL
-    import time
-    
     # Clear cache before test
     clear_bootstrap_cache()
     
@@ -248,9 +249,6 @@ def test_bootstrap_cache_failure_short_ttl():
 
 def test_bootstrap_cache_expiration_retry():
     """Test that expired cache entries trigger a retry."""
-    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache, get_bootstrap_cache, FAILURE_TTL
-    import time
-    
     # Clear cache before test
     clear_bootstrap_cache()
     
@@ -301,8 +299,6 @@ def test_bootstrap_cache_expiration_retry():
 
 def test_bootstrap_cache_bypass():
     """Test that cache can be bypassed with use_cache=False."""
-    from jadnet_dns_proxy.bootstrap import clear_bootstrap_cache
-    
     # Clear cache before test
     clear_bootstrap_cache()
     

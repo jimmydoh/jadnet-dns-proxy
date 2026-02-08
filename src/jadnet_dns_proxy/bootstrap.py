@@ -81,18 +81,24 @@ def get_upstream_ip(upstream_url: str, use_cache: bool = True) -> str:
                 new_url = urlunparse(parsed._replace(netloc=ip if not parsed.port else f"{ip}:{parsed.port}"))
                 
                 # Cache successful resolution with long TTL (1 hour)
-                _bootstrap_cache[hostname] = (new_url, current_time + SUCCESS_TTL, True)
+                # Get current time just before caching for accurate TTL
+                cache_time = time.time()
+                _bootstrap_cache[hostname] = (new_url, cache_time + SUCCESS_TTL, True)
                 return new_url
                 
         logger.warning(f"Could not resolve {hostname} via bootstrap. Using original URL.")
         # Cache failure with short TTL (30 seconds) to allow retry
-        _bootstrap_cache[hostname] = (upstream_url, current_time + FAILURE_TTL, False)
+        # Get current time just before caching for accurate TTL
+        cache_time = time.time()
+        _bootstrap_cache[hostname] = (upstream_url, cache_time + FAILURE_TTL, False)
         return upstream_url
 
     except Exception as e:
         logger.error(f"Bootstrap failed: {e}. Fallback to system resolver.")
         # Cache failure with short TTL (30 seconds) to allow retry
-        _bootstrap_cache[hostname] = (upstream_url, current_time + FAILURE_TTL, False)
+        # Get current time just before caching for accurate TTL
+        cache_time = time.time()
+        _bootstrap_cache[hostname] = (upstream_url, cache_time + FAILURE_TTL, False)
         return upstream_url
     finally:
         sock.close()

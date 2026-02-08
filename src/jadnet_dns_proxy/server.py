@@ -88,7 +88,7 @@ async def cleaner_task(cache):
         cache.prune()
 
 
-async def bootstrap_retry_task(upstream_manager, original_upstreams):
+async def bootstrap_retry_task(upstream_manager):
     """
     Periodically retries failed bootstrap resolutions.
     
@@ -98,24 +98,18 @@ async def bootstrap_retry_task(upstream_manager, original_upstreams):
     
     Args:
         upstream_manager: Manager for upstream servers
-        original_upstreams: List of original upstream URLs (before bootstrap)
     """
     while True:
         await asyncio.sleep(60)  # Check every minute
         
-        # Retry bootstrap for each original upstream
-        for original_url in original_upstreams:
-            new_url = get_upstream_ip(original_url, use_cache=True)
+        # Retry bootstrap for each server using its original URL
+        for server in upstream_manager.servers:
+            new_url = get_upstream_ip(server.original_url, use_cache=True)
             
-            # Check if the URL changed (successful bootstrap resolution)
-            # Find the corresponding server in upstream_manager and update if needed
-            for server in upstream_manager.servers:
-                # Match by checking if the original URL is related to this server's URL
-                if original_url in [server.url, new_url]:
-                    if server.url != new_url and new_url != original_url:
-                        logger.info(f"Bootstrap retry succeeded: {original_url} -> {new_url}")
-                        server.url = new_url
-                        break
+            # Update the URL if it changed (successful bootstrap resolution)
+            if server.url != new_url and new_url != server.original_url:
+                logger.info(f"Bootstrap retry succeeded: {server.original_url} -> {new_url}")
+                server.url = new_url
 
 
 async def main():
@@ -131,8 +125,8 @@ async def main():
     # Instantiate cache
     cache = DNSCache()
     
-    # Initialize upstream manager with bootstrapped URLs
-    upstream_manager = UpstreamManager(bootstrapped_upstreams)
+    # Initialize upstream manager with bootstrapped URLs and original URLs
+    upstream_manager = UpstreamManager(bootstrapped_upstreams, DOH_UPSTREAMS)
 
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()
@@ -161,7 +155,7 @@ async def main():
         tasks.append(asyncio.create_task(stats_task(upstream_manager)))
         
         # Start Bootstrap Retry Task
-        tasks.append(asyncio.create_task(bootstrap_retry_task(upstream_manager, DOH_UPSTREAMS)))
+        tasks.append(asyncio.create_task(bootstrap_retry_task(upstream_manager)))
 
         # Graceful Shutdown handling
         stop_event = asyncio.Event()
