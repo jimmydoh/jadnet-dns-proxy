@@ -654,3 +654,58 @@ async def test_custom_dns_backend_does_not_cache_failed_resolutions():
     assert isinstance(stream2, SNIPreservingStream)
     assert stream1._original_hostname == HOSTNAME
     assert stream2._original_hostname == HOSTNAME
+
+
+@pytest.mark.asyncio
+async def test_custom_dns_backend_no_warning_for_ip_addresses():
+    """Test that IP addresses do not generate bootstrap resolution warnings."""
+    backend = CustomDNSNetworkBackend(bootstrap_dns="8.8.8.8")
+    
+    # Mock the default backend's connect_tcp
+    mock_stream = AsyncMock(spec=httpcore.AsyncNetworkStream)
+    backend._default_backend.connect_tcp = AsyncMock(return_value=mock_stream)
+    
+    # Test with IPv4 address
+    with patch('jadnet_dns_proxy.bootstrap.logger') as mock_logger:
+        stream = await backend.connect_tcp("1.1.1.1", 443)
+        
+        # Verify NO warning was logged for IP address
+        mock_logger.warning.assert_not_called()
+        # Verify NO info log about caching was generated (IPs aren't cached)
+        mock_logger.info.assert_not_called()
+    
+    # Verify connect_tcp was called with the IP directly
+    backend._default_backend.connect_tcp.assert_called_with(
+        host="1.1.1.1",
+        port=443,
+        timeout=None,
+        local_address=None,
+        socket_options=None
+    )
+    
+    # Verify IP is not in the cache (no need to cache IPs)
+    assert "1.1.1.1" not in backend._dns_cache
+    
+    # Reset the mock for IPv6 test
+    backend._default_backend.connect_tcp.reset_mock()
+    
+    # Test with IPv6 address
+    with patch('jadnet_dns_proxy.bootstrap.logger') as mock_logger:
+        stream = await backend.connect_tcp("2606:4700:4700::1111", 443)
+        
+        # Verify NO warning was logged for IPv6 address
+        mock_logger.warning.assert_not_called()
+        # Verify NO info log about caching was generated
+        mock_logger.info.assert_not_called()
+    
+    # Verify connect_tcp was called with the IPv6 directly
+    backend._default_backend.connect_tcp.assert_called_with(
+        host="2606:4700:4700::1111",
+        port=443,
+        timeout=None,
+        local_address=None,
+        socket_options=None
+    )
+    
+    # Verify IPv6 is not in the cache
+    assert "2606:4700:4700::1111" not in backend._dns_cache
