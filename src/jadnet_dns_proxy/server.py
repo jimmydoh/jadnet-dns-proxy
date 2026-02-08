@@ -59,13 +59,13 @@ async def worker(name, queue, client, cache, upstream_manager, global_metrics):
                 response_bytes, ttl = await resolve_doh(client, data, upstream_manager)
                 response_time = time.time() - start_time
                 
+                # Record cache miss with response time
+                global_metrics.record_cache_miss(response_time)
+                
                 if response_bytes:
                     transport.sendto(response_bytes, addr)
                     cache.set(cache_key, response_bytes, ttl)
                     logger.debug(f"[UPSTREAM] {qname} ({qtype}) TTL:{ttl} -> {addr[0]}")
-                    
-                    # Record cache miss with response time
-                    global_metrics.record_cache_miss(response_time)
                 
         except Exception as e:
             logger.error(f"Worker processing error: {e}")

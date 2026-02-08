@@ -66,15 +66,23 @@ class GlobalMetrics:
         """Log global statistics."""
         qpm = self.get_queries_per_minute()
         hit_rate = self.get_cache_hit_rate()
-        min_time = self.get_min_response_time()
-        mean_time = self.get_mean_response_time()
-        max_time = self.get_max_response_time()
         
         logger.info("=== Global Metrics ===")
+        
+        # Format cache stats
+        cache_stats = f"Cache: {self.cache_hits} hits / {self.cache_misses} misses ({hit_rate:.1f}% hit rate)"
+        
+        # Format response time stats if we have data
+        if self.response_times:
+            min_time = self.get_min_response_time()
+            mean_time = self.get_mean_response_time()
+            max_time = self.get_max_response_time()
+            response_stats = f", Response times: min={min_time:.3f}s, mean={mean_time:.3f}s, max={max_time:.3f}s"
+        else:
+            response_stats = ""
+        
         logger.info(
-            f"Queries/min: {qpm:.1f}, "
-            f"Cache: {self.cache_hits} hits / {self.cache_misses} misses ({hit_rate:.1f}% hit rate), "
-            f"Response times: min={min_time:.3f}s, mean={mean_time:.3f}s, max={max_time:.3f}s"
+            f"Queries/min: {qpm:.1f}, {cache_stats}{response_stats}"
         )
         
         # Reset counters for next interval

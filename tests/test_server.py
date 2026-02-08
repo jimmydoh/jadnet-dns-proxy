@@ -185,6 +185,9 @@ async def test_worker_resolve_error():
         
         # Verify sendto was NOT called (no response to send)
         transport.sendto.assert_not_called()
+        
+        # Verify global_metrics.record_cache_miss was still called (to track failed queries)
+        mock_global_metrics.record_cache_miss.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -303,6 +303,44 @@ def test_log_stats_with_no_data(caplog):
     # Log stats without recording any data
     metrics.log_stats()
     
-    # Should still log without crashing
+    # Should still log without crashing and without response time stats
     assert any("Global Metrics" in record.message for record in caplog.records)
     assert any("Queries/min:" in record.message for record in caplog.records)
+    # Response time stats should not be present when there's no data
+    info_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
+    response_time_msg = [msg for msg in info_messages if "Queries/min:" in msg][0]
+    assert "Response times:" not in response_time_msg
+
+
+def test_log_stats_with_only_cache_hits(caplog):
+    """Test logging statistics when only cache hits are recorded (no response times)."""
+    import logging
+    caplog.set_level(logging.INFO)
+    
+    with patch('jadnet_dns_proxy.global_metrics.time.time') as mock_time:
+        # Start at time 0
+        mock_time.return_value = 0.0
+        metrics = GlobalMetrics()
+        
+        # Set last_log_time explicitly
+        metrics.last_log_time = 0.0
+        
+        # Record only cache hits (no cache misses, so no response times)
+        metrics.record_cache_hit()
+        metrics.record_cache_hit()
+        metrics.record_cache_hit()
+        
+        # Advance time by 1 minute
+        mock_time.return_value = 60.0
+        
+        metrics.log_stats()
+        
+        # Check that stats were logged
+        assert any("Global Metrics" in record.message for record in caplog.records)
+        assert any("Queries/min: 3.0" in record.message for record in caplog.records)
+        assert any("Cache: 3 hits / 0 misses (100.0% hit rate)" in record.message for record in caplog.records)
+        
+        # Response time stats should not be present when there are only cache hits
+        info_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
+        response_time_msg = [msg for msg in info_messages if "Queries/min:" in msg][0]
+        assert "Response times:" not in response_time_msg
