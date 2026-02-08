@@ -2,7 +2,6 @@
 import asyncio
 import signal
 import httpx
-import httpcore
 from dnslib import DNSRecord, QTYPE
 from .bootstrap import CustomDNSTransport
 from .config import logger, LISTEN_HOST, LISTEN_PORT, WORKER_COUNT, QUEUE_SIZE, DOH_UPSTREAMS, BOOTSTRAP_DNS
