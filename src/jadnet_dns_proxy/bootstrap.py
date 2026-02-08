@@ -165,6 +165,10 @@ class CustomDNSNetworkBackend(httpcore.AsyncNetworkBackend):
                 # Cache the resolved IP with the original hostname
                 self._dns_cache[host] = (resolved_ip, host)
                 logger.info(f"Cached DNS: {host} -> {resolved_ip}")
+            elif resolved_ip == host:
+                # Host is already an IP address, no resolution needed
+                # No need to cache or log for IP addresses
+                pass
             else:
                 # If resolution failed, do NOT cache the failure
                 # This allows retries on subsequent connection attempts
