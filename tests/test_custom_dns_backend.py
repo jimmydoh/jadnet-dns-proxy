@@ -319,3 +319,83 @@ async def test_custom_async_stream_aclose():
     
     # Clean up
     await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_custom_dns_backend_does_not_cache_failed_resolutions():
+    """Test that failed DNS resolutions are not cached, allowing retries."""
+    backend = CustomDNSNetworkBackend(bootstrap_dns="8.8.8.8")
+    
+    HOSTNAME = "transient-failure.example.com"
+    MOCK_RESOLVED_IP = "93.184.216.34"
+    
+    # Create a mock DNS response with no answers (resolution failure)
+    dns_question = DNSRecord.question(HOSTNAME, "A")
+    dns_response = dns_question.reply()
+    # No answers added - simulates resolution failure
+    response_bytes = dns_response.pack()
+    
+    # Mock socket operations for the first call (failure)
+    mock_socket_fail = MagicMock()
+    mock_socket_fail.__enter__.return_value = mock_socket_fail
+    mock_socket_fail.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
+    
+    # Mock the default backend's connect_tcp
+    mock_stream = AsyncMock(spec=httpcore.AsyncNetworkStream)
+    backend._default_backend.connect_tcp = AsyncMock(return_value=mock_stream)
+    
+    # Capture log warnings to verify the warning message
+    with patch('socket.socket', return_value=mock_socket_fail), \
+         patch('jadnet_dns_proxy.bootstrap.logger') as mock_logger:
+        # First call should fail to resolve
+        stream1 = await backend.connect_tcp(HOSTNAME, 443)
+        
+        # Verify warning log message was generated
+        mock_logger.warning.assert_called_with(
+            f"Bootstrap resolution failed for {HOSTNAME}, will retry on next connection"
+        )
+    
+    # Verify the hostname is NOT in the cache (failed resolutions should not be cached)
+    assert HOSTNAME not in backend._dns_cache
+    
+    # Verify connect_tcp was called with the original hostname (fallback to system DNS)
+    assert backend._default_backend.connect_tcp.call_count == 1
+    backend._default_backend.connect_tcp.assert_called_with(
+        host=HOSTNAME,
+        port=443,
+        timeout=None,
+        local_address=None,
+        socket_options=None
+    )
+    
+    # Now create a successful DNS response for the second attempt
+    dns_response_success = dns_question.reply()
+    dns_response_success.add_answer(RR(HOSTNAME, QTYPE.A, rdata=A(MOCK_RESOLVED_IP), ttl=300))
+    response_bytes_success = dns_response_success.pack()
+    
+    # Mock socket operations for the second call (success)
+    mock_socket_success = MagicMock()
+    mock_socket_success.__enter__.return_value = mock_socket_success
+    mock_socket_success.recvfrom.return_value = (response_bytes_success, ("8.8.8.8", 53))
+    
+    with patch('socket.socket', return_value=mock_socket_success):
+        # Second call should retry resolution and succeed
+        stream2 = await backend.connect_tcp(HOSTNAME, 443)
+    
+    # Verify the hostname IS NOW in the cache (successful resolution should be cached)
+    assert HOSTNAME in backend._dns_cache
+    assert backend._dns_cache[HOSTNAME] == (MOCK_RESOLVED_IP, HOSTNAME)
+    
+    # Verify connect_tcp was called twice total
+    assert backend._default_backend.connect_tcp.call_count == 2
+    
+    # Verify the second call specifically used the resolved IP
+    second_call_kwargs = backend._default_backend.connect_tcp.call_args_list[1].kwargs
+    assert second_call_kwargs['host'] == MOCK_RESOLVED_IP
+    assert second_call_kwargs['port'] == 443
+    
+    # Verify both calls returned SNIPreservingStream instances
+    assert isinstance(stream1, SNIPreservingStream)
+    assert isinstance(stream2, SNIPreservingStream)
+    assert stream1._original_hostname == HOSTNAME
+    assert stream2._original_hostname == HOSTNAME
