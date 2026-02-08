@@ -118,8 +118,8 @@ def test_logger_exists():
     assert logger.name == "async-doh"
 
 
-def test_httpx_logger_set_to_debug():
-    """Test that httpx and httpcore loggers are set to DEBUG level."""
+def test_httpx_logger_set_to_warning():
+    """Test that httpx and httpcore loggers are set to WARNING level to suppress verbose logging."""
     import logging
     import importlib
     import jadnet_dns_proxy.config as config_module
@@ -128,6 +128,6 @@ def test_httpx_logger_set_to_debug():
     httpx_logger = logging.getLogger("httpx")
     httpcore_logger = logging.getLogger("httpcore")
     
-    assert httpx_logger.level == logging.DEBUG
-    assert httpcore_logger.level == logging.DEBUG
+    assert httpx_logger.level == logging.WARNING
+    assert httpcore_logger.level == logging.WARNING
 
