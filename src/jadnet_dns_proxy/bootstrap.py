@@ -1,5 +1,6 @@
 """Bootstrap DNS resolution logic."""
 import socket
+import ipaddress
 from urllib.parse import urlparse, urlunparse
 from dnslib import DNSRecord, QTYPE
 from .config import logger, BOOTSTRAP_DNS
@@ -22,11 +23,11 @@ def get_upstream_ip(upstream_url: str) -> str:
     parsed = urlparse(upstream_url)
     hostname = parsed.hostname
     
-    # 1. Check if it's already an IP
+    # 1. Check if it's already an IP (IPv4 or IPv6)
     try:
-        socket.inet_aton(hostname)
-        return upstream_url  # It is an IPv4
-    except socket.error:
+        ipaddress.ip_address(hostname)
+        return upstream_url  # It is an IP literal
+    except ValueError:
         pass  # It is a hostname
 
     logger.info(f"Bootstrapping upstream '{hostname}' via {BOOTSTRAP_DNS}...")
