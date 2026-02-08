@@ -23,3 +23,7 @@ logging.basicConfig(
     datefmt='%H:%M:%S'
 )
 logger = logging.getLogger("async-doh")
+
+# Set httpx and httpcore loggers to DEBUG level to avoid INFO level HTTP POST logging
+logging.getLogger("httpx").setLevel(logging.DEBUG)
+logging.getLogger("httpcore").setLevel(logging.DEBUG)
