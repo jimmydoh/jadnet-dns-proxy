@@ -375,9 +375,6 @@ class CustomDNSTransport(httpx.AsyncHTTPTransport):
 
         # Wrap the response stream in an async-compatible wrapper
         # The response stream is an async iterable
-        async def aiter_raw():
-            async for chunk in resp.stream:
-                yield chunk
         
         # Create a custom stream class
         class CustomAsyncStream(httpx.AsyncByteStream):
