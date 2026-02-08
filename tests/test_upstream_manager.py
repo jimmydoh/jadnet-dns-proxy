@@ -281,3 +281,44 @@ class TestUpstreamManager:
         # Verify that the stats message is in the logs
         log_messages = [record.message for record in caplog.records]
         assert any("Upstream Server Statistics" in msg for msg in log_messages)
+    
+    def test_server_down_logging(self, caplog):
+        """Test that logging occurs when server is marked as DOWN."""
+        import logging
+        
+        caplog.set_level(logging.INFO, logger='async-doh')
+        
+        urls = ["https://1.1.1.1/dns-query"]
+        manager = UpstreamManager(urls)
+        
+        # Record failures to trigger DOWN status
+        for _ in range(5):
+            manager.servers[0].record_failure()
+        
+        # Check that a log message was created
+        log_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
+        assert any("marked as DOWN" in msg for msg in log_messages)
+    
+    def test_server_recovery_logging(self, caplog):
+        """Test that logging occurs when server recovers from DOWN to UP."""
+        import logging
+        
+        caplog.set_level(logging.INFO, logger='async-doh')
+        
+        urls = ["https://1.1.1.1/dns-query"]
+        manager = UpstreamManager(urls)
+        
+        # Mark server down
+        for _ in range(5):
+            manager.servers[0].record_failure()
+        
+        # Clear previous log records
+        caplog.clear()
+        
+        # Record success to trigger recovery
+        manager.servers[0].record_success(0.100)
+        
+        # Check that a recovery log message was created
+        log_messages = [record.message for record in caplog.records if record.levelname == "INFO"]
+        assert any("recovered" in msg and "UP" in msg for msg in log_messages)
+
