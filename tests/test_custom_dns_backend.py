@@ -27,6 +27,7 @@ def test_resolve_hostname_to_ip_success():
     
     # Mock socket operations
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
     
     with patch('socket.socket', return_value=mock_socket):
@@ -35,7 +36,7 @@ def test_resolve_hostname_to_ip_success():
     assert result == "93.184.216.34"
     mock_socket.settimeout.assert_called_once_with(5.0)
     mock_socket.sendto.assert_called_once()
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 def test_resolve_hostname_to_ip_failure():
@@ -47,25 +48,27 @@ def test_resolve_hostname_to_ip_failure():
     
     # Mock socket operations
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
     
     with patch('socket.socket', return_value=mock_socket):
         result = resolve_hostname_to_ip("nonexistent.example.com", "8.8.8.8")
     
     assert result is None
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 def test_resolve_hostname_to_ip_timeout():
     """Test handling of socket timeout."""
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.side_effect = socket.timeout("Timeout")
     
     with patch('socket.socket', return_value=mock_socket):
         result = resolve_hostname_to_ip("timeout.example.com", "8.8.8.8")
     
     assert result is None
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -81,6 +84,7 @@ async def test_custom_dns_backend_caches_resolution():
     
     # Mock socket operations
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
     
     # Mock the default backend's connect_tcp
