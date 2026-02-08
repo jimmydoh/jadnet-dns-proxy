@@ -377,17 +377,22 @@ class CustomDNSTransport(httpx.AsyncHTTPTransport):
         
         # Create a custom stream class
         class CustomAsyncStream(httpx.AsyncByteStream):
-            def __init__(self, raw_stream):
+            def __init__(self, raw_stream, response):
                 self._raw_stream = raw_stream
+                self._response = response
             
             async def __aiter__(self):
                 async for chunk in self._raw_stream:
                     yield chunk
+            
+            async def aclose(self):
+                """Close the underlying response to release the connection."""
+                await self._response.aclose()
 
         return httpx.Response(
             status_code=resp.status,
             headers=resp.headers,
-            stream=CustomAsyncStream(resp.stream),
+            stream=CustomAsyncStream(resp.stream, resp),
             extensions=resp.extensions,
             request=request,
         )

@@ -214,3 +214,42 @@ async def test_sni_preserving_stream_respects_explicit_server_hostname():
     mock_stream.start_tls.assert_called_once_with(
         ssl_context, server_hostname="other.com", timeout=5.0
     )
+
+
+@pytest.mark.asyncio
+async def test_custom_async_stream_aclose():
+    """Test that CustomAsyncStream properly closes the underlying response."""
+    from jadnet_dns_proxy.bootstrap import CustomDNSTransport
+    import httpx
+    
+    # Create a transport
+    transport = CustomDNSTransport(bootstrap_dns="8.8.8.8")
+    
+    # Mock the connection pool to return a mock response
+    mock_response = AsyncMock(spec=httpcore.Response)
+    mock_response.status = 200
+    mock_response.headers = []
+    mock_response.stream = AsyncMock()
+    mock_response.stream.__aiter__ = AsyncMock(return_value=iter([b"test data"]))
+    mock_response.extensions = {}
+    mock_response.aclose = AsyncMock()
+    
+    transport._pool.handle_async_request = AsyncMock(return_value=mock_response)
+    
+    # Create a request
+    request = httpx.Request("GET", "https://example.com/test")
+    
+    # Handle the request
+    response = await transport.handle_async_request(request)
+    
+    # Verify the response is created
+    assert response.status_code == 200
+    
+    # Close the response (this should call aclose on the stream)
+    await response.aclose()
+    
+    # Verify that the underlying httpcore response's aclose was called
+    mock_response.aclose.assert_called_once()
+    
+    # Clean up
+    await transport.aclose()
