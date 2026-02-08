@@ -1,8 +1,9 @@
 """Unit tests for the server module."""
 import asyncio
+import signal
 from unittest.mock import Mock, AsyncMock, patch
 from dnslib import DNSRecord, QTYPE, RR, A
-from jadnet_dns_proxy.server import worker, cleaner_task, stats_task
+from jadnet_dns_proxy.server import worker, cleaner_task, stats_task, main
 from jadnet_dns_proxy.cache import DNSCache
 from jadnet_dns_proxy.upstream_manager import UpstreamManager
 
@@ -445,4 +446,60 @@ async def test_worker_no_verbose_logging_at_info_level(caplog):
     info_records = [record for record in caplog.records if record.levelname == "INFO"]
     assert not any("[CACHE]" in record.message for record in info_records)
     assert not any("[UPSTREAM]" in record.message for record in info_records)
+async def test_main_signal_handler_not_implemented():
+    """Test that main() handles NotImplementedError for signal handlers (Windows compatibility)."""
+    # Mock all the dependencies
+    with patch('jadnet_dns_proxy.server.get_upstream_ip') as mock_bootstrap, \
+         patch('jadnet_dns_proxy.server.httpx.AsyncClient') as mock_client_class, \
+         patch('jadnet_dns_proxy.server.asyncio.get_running_loop') as mock_get_loop, \
+         patch('jadnet_dns_proxy.server.asyncio.create_task') as mock_create_task, \
+         patch('jadnet_dns_proxy.server.asyncio.Event') as mock_event_class, \
+         patch('jadnet_dns_proxy.server.logger') as mock_logger:
+        
+        # Setup bootstrap to return test URLs
+        mock_bootstrap.return_value = "https://1.1.1.1/dns-query"
+        
+        # Setup mock loop
+        mock_loop = Mock()
+        mock_get_loop.return_value = mock_loop
+        
+        # Mock the loop.create_datagram_endpoint to return transport and protocol
+        mock_transport = Mock()
+        mock_protocol = Mock()
+        mock_loop.create_datagram_endpoint = AsyncMock(return_value=(mock_transport, mock_protocol))
+        
+        # Make add_signal_handler raise NotImplementedError (simulating Windows)
+        mock_loop.add_signal_handler = Mock(side_effect=NotImplementedError("Signal handlers not supported"))
+        
+        # Setup mock event
+        mock_event = Mock()
+        mock_event_class.return_value = mock_event
+        
+        # Make the event.wait() return immediately to avoid blocking
+        mock_event.wait = AsyncMock()
+        
+        # Setup mock client context manager
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+        
+        # Setup mock tasks
+        mock_task = Mock()
+        mock_task.cancel = Mock()
+        mock_create_task.return_value = mock_task
+        
+        # Mock asyncio.gather to return immediately
+        with patch('jadnet_dns_proxy.server.asyncio.gather', new_callable=AsyncMock):
+            # Run main
+            await main()
+        
+        # Verify that add_signal_handler was called (and raised NotImplementedError)
+        assert mock_loop.add_signal_handler.called
+        
+        # Verify that the warning was logged about signal handlers not being supported
+        warning_calls = [call for call in mock_logger.warning.call_args_list 
+                         if "Signal handlers not supported" in str(call)]
+        assert len(warning_calls) == 1
+        assert "Windows systems" in str(warning_calls[0])
 
