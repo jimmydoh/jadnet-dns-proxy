@@ -40,7 +40,13 @@ class UpstreamServer:
         # Keep list bounded
         if len(self.response_times) > 100:
             self.response_times = self.response_times[-100:]
+        
+        # Log when server recovers from DOWN to UP
+        was_down = not self.is_up
         self.is_up = True
+        if was_down:
+            logger.info(f"Upstream {self.url} recovered (UP) - Success rate: {self.success_rate:.1f}%, Avg response time: {self.avg_response_time:.3f}s")
+        
         self.last_check = time.time()
     
     def record_failure(self):
@@ -51,8 +57,10 @@ class UpstreamServer:
         
         # Mark as down if failure rate is too high
         if self.total_requests >= 5 and self.success_rate < 50:
+            was_up = self.is_up
             self.is_up = False
-            logger.warning(f"Upstream {self.url} marked as DOWN (success rate: {self.success_rate:.1f}%)")
+            if was_up:
+                logger.info(f"Upstream {self.url} marked as DOWN - Success rate: {self.success_rate:.1f}%, Failed: {self.failed_requests}/{self.total_requests}")
 
 
 class UpstreamManager:
