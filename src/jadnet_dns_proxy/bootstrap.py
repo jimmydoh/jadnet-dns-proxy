@@ -1,6 +1,5 @@
 """Bootstrap DNS resolution logic."""
 import socket
-import ssl
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 from dnslib import DNSRecord, QTYPE
