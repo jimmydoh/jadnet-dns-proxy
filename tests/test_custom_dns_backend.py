@@ -284,8 +284,8 @@ async def test_custom_dns_transport_end_to_end_with_async_client():
     
     # Create an async iterator for the response stream
     async def mock_stream_iter():
-        yield b'{"key": "val'
-        yield b'ue"}'
+        yield b'{"key": '
+        yield b'"value"}'
     
     mock_response.stream = mock_stream_iter()
     mock_response.extensions = {}
@@ -473,11 +473,15 @@ async def test_custom_dns_transport_response_stream_closure():
     mock_response.status = 200
     mock_response.headers = []
     
-    # Create a stream that can be iterated multiple times
-    call_count = [0]
+    # Track number of times stream is created
+    class StreamTracker:
+        def __init__(self):
+            self.call_count = 0
+    
+    tracker = StreamTracker()
     
     async def mock_stream_iter():
-        call_count[0] += 1
+        tracker.call_count += 1
         yield b'chunk1'
         yield b'chunk2'
         yield b'chunk3'
@@ -507,4 +511,4 @@ async def test_custom_dns_transport_response_stream_closure():
     # Verify the underlying httpcore response's aclose was called
     mock_response.aclose.assert_called()
     # Verify the stream was iterated exactly once
-    assert call_count[0] == 1
+    assert tracker.call_count == 1
