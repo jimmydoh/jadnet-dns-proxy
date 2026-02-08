@@ -142,9 +142,9 @@ class CustomDNSNetworkBackend(httpcore.AsyncNetworkBackend):
         """
         self.bootstrap_dns = bootstrap_dns
         self._dns_cache = {}  # Simple cache: hostname -> (IP, original_hostname)
-        # Use the AutoBackend which automatically selects the appropriate backend
-        from httpcore._backends.auto import AutoBackend
-        self._default_backend = AutoBackend()
+        # Use AnyIOBackend which is the public API backend for async operations
+        # (supports asyncio, curio, etc. via anyio)
+        self._default_backend = httpcore.AnyIOBackend()
     
     async def connect_tcp(
         self,
