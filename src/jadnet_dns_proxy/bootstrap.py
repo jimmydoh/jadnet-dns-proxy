@@ -39,33 +39,30 @@ def get_upstream_ip(upstream_url: str) -> str:
     data = q.pack()
 
     # 3. Send raw UDP packet
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(5.0)
-    
     try:
-        sock.sendto(data, (BOOTSTRAP_DNS, 53))
-        response_data, _ = sock.recvfrom(512)
-        
-        # 4. Parse Response
-        response = DNSRecord.parse(response_data)
-        for rr in response.rr:
-            if rr.rtype == QTYPE.A:
-                ip = str(rr.rdata)
-                logger.info(f"Resolved {hostname} -> {ip}")
-                
-                # Replace hostname with IP in the URL using urlunparse for safety
-                # This ensures only the netloc (hostname:port) is replaced
-                new_url = urlunparse(parsed._replace(netloc=ip if not parsed.port else f"{ip}:{parsed.port}"))
-                return new_url
-                
-        logger.warning(f"Could not resolve {hostname} via bootstrap. Using original URL.")
-        return upstream_url
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(5.0)
+            sock.sendto(data, (BOOTSTRAP_DNS, 53))
+            response_data, _ = sock.recvfrom(512)
+            
+            # 4. Parse Response
+            response = DNSRecord.parse(response_data)
+            for rr in response.rr:
+                if rr.rtype == QTYPE.A:
+                    ip = str(rr.rdata)
+                    logger.info(f"Resolved {hostname} -> {ip}")
+                    
+                    # Replace hostname with IP in the URL using urlunparse for safety
+                    # This ensures only the netloc (hostname:port) is replaced
+                    new_url = urlunparse(parsed._replace(netloc=ip if not parsed.port else f"{ip}:{parsed.port}"))
+                    return new_url
+                    
+            logger.warning(f"Could not resolve {hostname} via bootstrap. Using original URL.")
+            return upstream_url
 
     except Exception as e:
         logger.error(f"Bootstrap failed: {e}. Fallback to system resolver.")
         return upstream_url
-    finally:
-        sock.close()
 
 
 def resolve_hostname_to_ip(hostname: str, bootstrap_dns: str = BOOTSTRAP_DNS) -> Optional[str]:
@@ -97,29 +94,26 @@ def resolve_hostname_to_ip(hostname: str, bootstrap_dns: str = BOOTSTRAP_DNS) ->
     data = q.pack()
     
     # Send raw UDP packet
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.settimeout(5.0)
-    
     try:
-        sock.sendto(data, (bootstrap_dns, 53))
-        response_data, _ = sock.recvfrom(512)
-        
-        # Parse Response
-        response = DNSRecord.parse(response_data)
-        for rr in response.rr:
-            if rr.rtype == QTYPE.A:
-                ip = str(rr.rdata)
-                logger.debug(f"Resolved {hostname} -> {ip}")
-                return ip
-        
-        logger.warning(f"Could not resolve {hostname} via bootstrap.")
-        return None
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.settimeout(5.0)
+            sock.sendto(data, (bootstrap_dns, 53))
+            response_data, _ = sock.recvfrom(512)
+            
+            # Parse Response
+            response = DNSRecord.parse(response_data)
+            for rr in response.rr:
+                if rr.rtype == QTYPE.A:
+                    ip = str(rr.rdata)
+                    logger.debug(f"Resolved {hostname} -> {ip}")
+                    return ip
+            
+            logger.warning(f"Could not resolve {hostname} via bootstrap.")
+            return None
         
     except Exception as e:
         logger.error(f"Bootstrap resolution failed for {hostname}: {e}")
         return None
-    finally:
-        sock.close()
 
 
 class CustomDNSNetworkBackend(httpcore.AsyncNetworkBackend):
