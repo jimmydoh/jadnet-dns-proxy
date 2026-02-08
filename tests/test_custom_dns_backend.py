@@ -279,15 +279,23 @@ async def test_custom_dns_backend_does_not_cache_failed_resolutions():
     mock_stream = AsyncMock(spec=httpcore.AsyncNetworkStream)
     backend._default_backend.connect_tcp = AsyncMock(return_value=mock_stream)
     
-    with patch('socket.socket', return_value=mock_socket_fail):
+    # Capture log warnings to verify the warning message
+    with patch('socket.socket', return_value=mock_socket_fail), \
+         patch('jadnet_dns_proxy.bootstrap.logger') as mock_logger:
         # First call should fail to resolve
         stream1 = await backend.connect_tcp("transient-failure.example.com", 443)
+        
+        # Verify warning log message was generated
+        mock_logger.warning.assert_called_with(
+            "Bootstrap resolution failed for transient-failure.example.com, will retry on next connection"
+        )
     
     # Verify the hostname is NOT in the cache (failed resolutions should not be cached)
     assert "transient-failure.example.com" not in backend._dns_cache
     
     # Verify connect_tcp was called with the original hostname (fallback to system DNS)
-    backend._default_backend.connect_tcp.assert_called_once_with(
+    assert backend._default_backend.connect_tcp.call_count == 1
+    backend._default_backend.connect_tcp.assert_called_with(
         host="transient-failure.example.com",
         port=443,
         timeout=None,
@@ -313,15 +321,13 @@ async def test_custom_dns_backend_does_not_cache_failed_resolutions():
     assert "transient-failure.example.com" in backend._dns_cache
     assert backend._dns_cache["transient-failure.example.com"] == ("93.184.216.34", "transient-failure.example.com")
     
-    # Verify connect_tcp was called with the resolved IP this time
+    # Verify connect_tcp was called twice total
     assert backend._default_backend.connect_tcp.call_count == 2
-    backend._default_backend.connect_tcp.assert_any_call(
-        host="93.184.216.34",
-        port=443,
-        timeout=None,
-        local_address=None,
-        socket_options=None
-    )
+    
+    # Verify the second call specifically used the resolved IP
+    second_call_args = backend._default_backend.connect_tcp.call_args_list[1]
+    assert second_call_args[1]["host"] == "93.184.216.34"
+    assert second_call_args[1]["port"] == 443
     
     # Verify both calls returned SNIPreservingStream instances
     assert isinstance(stream1, SNIPreservingStream)
