@@ -13,6 +13,42 @@ def test_get_upstream_ip_already_ip():
     assert result == "https://1.1.1.1/dns-query"
 
 
+def test_get_upstream_ip_ipv6_literal():
+    """Test that IPv6 addresses are returned unchanged."""
+    # IPv6 address should be returned as-is
+    result = get_upstream_ip("https://[2606:4700:4700::1111]/dns-query")
+    assert result == "https://[2606:4700:4700::1111]/dns-query"
+    
+    # Compressed IPv6 address
+    result = get_upstream_ip("https://[::1]/dns-query")
+    assert result == "https://[::1]/dns-query"
+
+
+def test_get_upstream_ip_non_canonical_ipv4_triggers_resolution():
+    """Test that non-canonical IPv4 forms are treated as hostnames and trigger DNS resolution."""
+    # Non-canonical forms like '1' should NOT be treated as IP addresses
+    # They should trigger DNS resolution instead
+    upstream_url = "https://1/dns-query"
+    
+    # Create a mock DNS response for hostname "1"
+    dns_query = DNSRecord.question("1", "A")
+    dns_response = dns_query.reply()
+    dns_response.add_answer(RR("1", QTYPE.A, rdata=A("192.0.2.1"), ttl=300))
+    response_bytes = dns_response.pack()
+    
+    # Mock socket operations
+    mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
+    mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
+    
+    with patch('socket.socket', return_value=mock_socket):
+        result = get_upstream_ip(upstream_url)
+    
+    # Should have attempted DNS resolution, not returned the URL as-is
+    mock_socket.sendto.assert_called_once()
+    assert result == "https://192.0.2.1/dns-query"
+
+
 def test_get_upstream_ip_hostname_success():
     """Test successful hostname resolution via bootstrap."""
     upstream_url = "https://cloudflare-dns.com/dns-query"
@@ -25,6 +61,7 @@ def test_get_upstream_ip_hostname_success():
     
     # Mock socket operations
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
     
     with patch('socket.socket', return_value=mock_socket):
@@ -37,7 +74,7 @@ def test_get_upstream_ip_hostname_success():
     mock_socket.settimeout.assert_called_once_with(5.0)
     mock_socket.sendto.assert_called_once()
     mock_socket.recvfrom.assert_called_once_with(512)
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 def test_get_upstream_ip_no_answers():
@@ -52,6 +89,7 @@ def test_get_upstream_ip_no_answers():
     
     # Mock socket operations
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
     
     with patch('socket.socket', return_value=mock_socket):
@@ -59,7 +97,7 @@ def test_get_upstream_ip_no_answers():
     
     # Should return original URL when no answers found
     assert result == upstream_url
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 def test_get_upstream_ip_socket_timeout():
@@ -68,6 +106,7 @@ def test_get_upstream_ip_socket_timeout():
     
     # Mock socket to raise timeout
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.side_effect = socket.timeout("Timeout")
     
     with patch('socket.socket', return_value=mock_socket):
@@ -75,7 +114,7 @@ def test_get_upstream_ip_socket_timeout():
     
     # Should return original URL on timeout
     assert result == upstream_url
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 def test_get_upstream_ip_socket_error():
@@ -84,6 +123,7 @@ def test_get_upstream_ip_socket_error():
     
     # Mock socket to raise error
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.sendto.side_effect = OSError("Network error")
     
     with patch('socket.socket', return_value=mock_socket):
@@ -91,7 +131,7 @@ def test_get_upstream_ip_socket_error():
     
     # Should return original URL on error
     assert result == upstream_url
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 def test_get_upstream_ip_parse_error():
@@ -100,6 +140,7 @@ def test_get_upstream_ip_parse_error():
     
     # Mock socket to return invalid data
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (b"invalid_dns_data", ("8.8.8.8", 53))
     
     with patch('socket.socket', return_value=mock_socket):
@@ -107,7 +148,7 @@ def test_get_upstream_ip_parse_error():
     
     # Should return original URL when parsing fails
     assert result == upstream_url
-    mock_socket.close.assert_called_once()
+    mock_socket.__exit__.assert_called_once()
 
 
 def test_get_upstream_ip_custom_bootstrap_dns():
@@ -122,6 +163,7 @@ def test_get_upstream_ip_custom_bootstrap_dns():
     
     # Mock socket operations
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (response_bytes, ("1.1.1.1", 53))
     
     with patch('socket.socket', return_value=mock_socket):
@@ -149,6 +191,7 @@ def test_get_upstream_ip_multiple_answers():
     
     # Mock socket operations
     mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
     mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
     
     with patch('socket.socket', return_value=mock_socket):
