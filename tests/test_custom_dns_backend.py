@@ -17,6 +17,41 @@ def test_resolve_hostname_to_ip_already_ip():
     assert result == "1.1.1.1"
 
 
+def test_resolve_hostname_to_ip_ipv6_literal():
+    """Test that IPv6 addresses are returned unchanged."""
+    # IPv6 address should be returned as-is
+    result = resolve_hostname_to_ip("2606:4700:4700::1111")
+    assert result == "2606:4700:4700::1111"
+    
+    # Compressed IPv6 address
+    result = resolve_hostname_to_ip("::1")
+    assert result == "::1"
+
+
+def test_resolve_hostname_to_ip_non_canonical_ipv4_triggers_resolution():
+    """Test that non-canonical IPv4 forms are treated as hostnames and trigger DNS resolution."""
+    # Non-canonical forms like '1' should NOT be treated as IP addresses
+    hostname = "1"
+    
+    # Create a mock DNS response
+    dns_query = DNSRecord.question(hostname, "A")
+    dns_response = dns_query.reply()
+    dns_response.add_answer(RR(hostname, QTYPE.A, rdata=A("192.0.2.1"), ttl=300))
+    response_bytes = dns_response.pack()
+    
+    # Mock socket operations
+    mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
+    mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
+    
+    with patch('socket.socket', return_value=mock_socket):
+        result = resolve_hostname_to_ip(hostname, "8.8.8.8")
+    
+    # Should have attempted DNS resolution, not returned the input as-is
+    mock_socket.sendto.assert_called_once()
+    assert result == "192.0.2.1"
+
+
 def test_resolve_hostname_to_ip_success():
     """Test successful hostname resolution."""
     # Create a mock DNS response
@@ -144,6 +179,33 @@ async def test_custom_dns_backend_handles_ip_directly():
     # Verify SNIPreservingStream is returned
     assert isinstance(stream, SNIPreservingStream)
     assert stream._original_hostname == "1.1.1.1"
+
+
+@pytest.mark.asyncio
+async def test_custom_dns_backend_handles_ipv6_directly():
+    """Test that the backend handles IPv6 addresses directly without resolution."""
+    backend = CustomDNSNetworkBackend(bootstrap_dns="8.8.8.8")
+    
+    # Mock the default backend's connect_tcp
+    mock_stream = AsyncMock(spec=httpcore.AsyncNetworkStream)
+    backend._default_backend.connect_tcp = AsyncMock(return_value=mock_stream)
+    
+    # Connect using an IPv6 address directly
+    stream = await backend.connect_tcp("2606:4700:4700::1111", 443)
+    
+    # Verify no DNS resolution was attempted (would require socket.socket)
+    # and connect_tcp was called with the same IP
+    backend._default_backend.connect_tcp.assert_called_once_with(
+        host="2606:4700:4700::1111",
+        port=443,
+        timeout=None,
+        local_address=None,
+        socket_options=None
+    )
+    
+    # Verify SNIPreservingStream is returned
+    assert isinstance(stream, SNIPreservingStream)
+    assert stream._original_hostname == "2606:4700:4700::1111"
 
 
 @pytest.mark.asyncio

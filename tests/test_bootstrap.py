@@ -13,6 +13,42 @@ def test_get_upstream_ip_already_ip():
     assert result == "https://1.1.1.1/dns-query"
 
 
+def test_get_upstream_ip_ipv6_literal():
+    """Test that IPv6 addresses are returned unchanged."""
+    # IPv6 address should be returned as-is
+    result = get_upstream_ip("https://[2606:4700:4700::1111]/dns-query")
+    assert result == "https://[2606:4700:4700::1111]/dns-query"
+    
+    # Compressed IPv6 address
+    result = get_upstream_ip("https://[::1]/dns-query")
+    assert result == "https://[::1]/dns-query"
+
+
+def test_get_upstream_ip_non_canonical_ipv4_triggers_resolution():
+    """Test that non-canonical IPv4 forms are treated as hostnames and trigger DNS resolution."""
+    # Non-canonical forms like '1' should NOT be treated as IP addresses
+    # They should trigger DNS resolution instead
+    upstream_url = "https://1/dns-query"
+    
+    # Create a mock DNS response for hostname "1"
+    dns_query = DNSRecord.question("1", "A")
+    dns_response = dns_query.reply()
+    dns_response.add_answer(RR("1", QTYPE.A, rdata=A("192.0.2.1"), ttl=300))
+    response_bytes = dns_response.pack()
+    
+    # Mock socket operations
+    mock_socket = MagicMock()
+    mock_socket.__enter__.return_value = mock_socket
+    mock_socket.recvfrom.return_value = (response_bytes, ("8.8.8.8", 53))
+    
+    with patch('socket.socket', return_value=mock_socket):
+        result = get_upstream_ip(upstream_url)
+    
+    # Should have attempted DNS resolution, not returned the URL as-is
+    mock_socket.sendto.assert_called_once()
+    assert result == "https://192.0.2.1/dns-query"
+
+
 def test_get_upstream_ip_hostname_success():
     """Test successful hostname resolution via bootstrap."""
     upstream_url = "https://cloudflare-dns.com/dns-query"
