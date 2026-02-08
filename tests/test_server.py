@@ -299,6 +299,153 @@ async def test_worker_task_done_called():
 
 
 @pytest.mark.asyncio
+async def test_worker_cache_hit_debug_logging(caplog):
+    """Test that cache hit logs at DEBUG level."""
+    import logging
+    caplog.set_level(logging.DEBUG)
+    
+    queue = asyncio.Queue()
+    
+    # Create a DNS request
+    request = DNSRecord.question("cached.example.com", "A")
+    request_bytes = request.pack()
+    
+    # Create a cached response
+    response = request.reply()
+    response.add_answer(RR("cached.example.com", QTYPE.A, rdata=A("1.2.3.4"), ttl=300))
+    cached_bytes = response.pack()
+    
+    # Create mock cache that returns data
+    mock_cache = Mock()
+    mock_cache.get = Mock(return_value=cached_bytes)
+    
+    # Setup queue item
+    transport = Mock()
+    transport.sendto = Mock()
+    addr = ("127.0.0.1", 12345)
+    await queue.put((request_bytes, addr, transport))
+    
+    # Setup mock client
+    mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
+    # Create worker task
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    
+    # Wait for the queued item to be processed
+    await queue.join()
+    
+    # Cancel worker
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Verify that cache hit was logged at DEBUG level
+    assert any("[CACHE] cached.example.com." in record.message for record in caplog.records if record.levelname == "DEBUG")
+
+
+@pytest.mark.asyncio
+async def test_worker_upstream_request_debug_logging(caplog):
+    """Test that upstream request logs at DEBUG level."""
+    import logging
+    caplog.set_level(logging.DEBUG)
+    
+    queue = asyncio.Queue()
+    
+    # Create a DNS request
+    request = DNSRecord.question("uncached.example.com", "A")
+    request_bytes = request.pack()
+    
+    # Create a DoH response
+    response = request.reply()
+    response.add_answer(RR("uncached.example.com", QTYPE.A, rdata=A("5.6.7.8"), ttl=600))
+    response_bytes = response.pack()
+    
+    # Create mock cache that returns None (cache miss)
+    mock_cache = Mock()
+    mock_cache.get = Mock(return_value=None)
+    mock_cache.set = Mock()
+    
+    # Setup queue item
+    transport = Mock()
+    transport.sendto = Mock()
+    addr = ("192.168.1.1", 54321)
+    await queue.put((request_bytes, addr, transport))
+    
+    # Setup mock client
+    mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
+    with patch('jadnet_dns_proxy.server.resolve_doh', 
+               return_value=(response_bytes, 600)):
+        
+        # Create worker task
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+        
+        # Wait for the queued item to be processed
+        await queue.join()
+        
+        # Cancel worker
+        worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
+        
+        # Verify that upstream request was logged at DEBUG level
+        assert any("[UPSTREAM] uncached.example.com." in record.message for record in caplog.records if record.levelname == "DEBUG")
+
+
+@pytest.mark.asyncio
+async def test_worker_no_verbose_logging_at_info_level(caplog):
+    """Test that per-request logs don't appear at INFO level."""
+    import logging
+    caplog.set_level(logging.INFO)
+    
+    queue = asyncio.Queue()
+    
+    # Create a DNS request
+    request = DNSRecord.question("test.example.com", "A")
+    request_bytes = request.pack()
+    
+    # Create a cached response
+    response = request.reply()
+    response.add_answer(RR("test.example.com", QTYPE.A, rdata=A("1.2.3.4"), ttl=300))
+    cached_bytes = response.pack()
+    
+    # Create mock cache that returns data
+    mock_cache = Mock()
+    mock_cache.get = Mock(return_value=cached_bytes)
+    
+    # Setup queue item
+    transport = Mock()
+    transport.sendto = Mock()
+    addr = ("127.0.0.1", 12345)
+    await queue.put((request_bytes, addr, transport))
+    
+    # Setup mock client
+    mock_client = AsyncMock()
+    mock_upstream_manager = Mock()
+    
+    # Create worker task
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    
+    # Wait for the queued item to be processed
+    await queue.join()
+    
+    # Cancel worker
+    worker_task.cancel()
+    try:
+        await worker_task
+    except asyncio.CancelledError:
+        pass
+    
+    # Verify that per-request logs don't appear at INFO level
+    info_records = [record for record in caplog.records if record.levelname == "INFO"]
+    assert not any("[CACHE]" in record.message for record in info_records)
+    assert not any("[UPSTREAM]" in record.message for record in info_records)
 async def test_main_signal_handler_not_implemented():
     """Test that main() handles NotImplementedError for signal handlers (Windows compatibility)."""
     # Mock all the dependencies

@@ -45,7 +45,7 @@ async def worker(name, queue, client, cache, upstream_manager):
                 response_bytes = cached_record.pack()
                 
                 transport.sendto(response_bytes, addr)
-                logger.info(f"[CACHE] {qname} ({qtype}) -> {addr[0]}")
+                logger.debug(f"[CACHE] {qname} ({qtype}) -> {addr[0]}")
             
             else:
                 # 3. Fetch from DoH
@@ -54,7 +54,7 @@ async def worker(name, queue, client, cache, upstream_manager):
                 if response_bytes:
                     transport.sendto(response_bytes, addr)
                     cache.set(cache_key, response_bytes, ttl)
-                    logger.info(f"[UPSTREAM] {qname} ({qtype}) TTL:{ttl} -> {addr[0]}")
+                    logger.debug(f"[UPSTREAM] {qname} ({qtype}) TTL:{ttl} -> {addr[0]}")
                 
         except Exception as e:
             logger.error(f"Worker processing error: {e}")
