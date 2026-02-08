@@ -160,7 +160,6 @@ class CustomDNSNetworkBackend(httpcore.AsyncNetworkBackend):
         This method resolves the hostname to an IP address using bootstrap DNS,
         but preserves the original hostname for SNI in the TLS handshake.
         """
-        original_host = host
         
         # Check if we already have a cached IP for this hostname
         if host not in self._dns_cache:
