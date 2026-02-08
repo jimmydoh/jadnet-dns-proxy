@@ -1,6 +1,7 @@
 """Main server implementation with worker pool."""
 import asyncio
 import signal
+import time
 import httpx
 from dnslib import DNSRecord, QTYPE
 from .bootstrap import CustomDNSTransport
@@ -9,9 +10,10 @@ from .protocol import DNSProtocol
 from .cache import DNSCache
 from .resolver import resolve_doh
 from .upstream_manager import UpstreamManager
+from .global_metrics import GlobalMetrics
 
 
-async def worker(name, queue, client, cache, upstream_manager):
+async def worker(name, queue, client, cache, upstream_manager, global_metrics):
     """
     Worker that consumes packets from queue and processes them.
     
@@ -21,6 +23,7 @@ async def worker(name, queue, client, cache, upstream_manager):
         client: HTTP client for DoH requests
         cache: DNS cache instance
         upstream_manager: Manager for upstream servers
+        global_metrics: Global metrics tracker
     """
     logger.debug(f"Worker {name} started")
     while True:
@@ -46,10 +49,18 @@ async def worker(name, queue, client, cache, upstream_manager):
                 
                 transport.sendto(response_bytes, addr)
                 logger.debug(f"[CACHE] {qname} ({qtype}) -> {addr[0]}")
+                
+                # Record cache hit
+                global_metrics.record_cache_hit()
             
             else:
                 # 3. Fetch from DoH
+                start_time = time.time()
                 response_bytes, ttl = await resolve_doh(client, data, upstream_manager)
+                response_time = time.time() - start_time
+                
+                # Record cache miss with response time
+                global_metrics.record_cache_miss(response_time)
                 
                 if response_bytes:
                     transport.sendto(response_bytes, addr)
@@ -63,16 +74,18 @@ async def worker(name, queue, client, cache, upstream_manager):
             queue.task_done()
 
 
-async def stats_task(upstream_manager):
+async def stats_task(upstream_manager, global_metrics):
     """
-    Periodically logs statistics about upstream servers.
+    Periodically logs statistics about upstream servers and global metrics.
     
     Args:
         upstream_manager: Manager for upstream servers
+        global_metrics: Global metrics tracker
     """
     while True:
         await asyncio.sleep(300)  # Log stats every 5 minutes
         upstream_manager.log_stats()
+        global_metrics.log_stats()
 
 
 
@@ -102,6 +115,9 @@ async def main():
     
     # Initialize upstream manager with original URLs (not bootstrapped)
     upstream_manager = UpstreamManager(DOH_UPSTREAMS)
+    
+    # Initialize global metrics
+    global_metrics = GlobalMetrics()
 
     # Setup Loop and Transport
     loop = asyncio.get_running_loop()
@@ -125,15 +141,15 @@ async def main():
         # Start Workers
         tasks = []
         for i in range(WORKER_COUNT):
-            # Pass upstream_manager to worker
-            task = asyncio.create_task(worker(f"w-{i}", queue, client, cache, upstream_manager))
+            # Pass upstream_manager and global_metrics to worker
+            task = asyncio.create_task(worker(f"w-{i}", queue, client, cache, upstream_manager, global_metrics))
             tasks.append(task)
             
         # Start Cache Cleaner and pass cache
         tasks.append(asyncio.create_task(cleaner_task(cache)))
         
         # Start Stats Logger
-        tasks.append(asyncio.create_task(stats_task(upstream_manager)))
+        tasks.append(asyncio.create_task(stats_task(upstream_manager, global_metrics)))
 
         # Graceful Shutdown handling
         stop_event = asyncio.Event()

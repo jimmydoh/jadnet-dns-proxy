@@ -6,6 +6,7 @@ from dnslib import DNSRecord, QTYPE, RR, A
 from jadnet_dns_proxy.server import worker, cleaner_task, stats_task, main
 from jadnet_dns_proxy.cache import DNSCache
 from jadnet_dns_proxy.upstream_manager import UpstreamManager
+from jadnet_dns_proxy.global_metrics import GlobalMetrics
 
 import pytest
 
@@ -40,8 +41,12 @@ async def test_worker_cache_hit():
     # Setup mock upstream manager (should not be called for cache hit)
     mock_upstream_manager = Mock()
     
-    # Create worker task with cache and upstream_manager parameters
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.record_cache_hit = Mock()
+    
+    # Create worker task with cache, upstream_manager, and global_metrics parameters
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
     
     # Wait for the queued item to be processed
     await queue.join()
@@ -62,6 +67,9 @@ async def test_worker_cache_hit():
     
     # Verify cache.get was called with the expected key
     mock_cache.get.assert_called_once_with(("cached.example.com.", "A"))
+    
+    # Verify global_metrics.record_cache_hit was called
+    mock_global_metrics.record_cache_hit.assert_called_once()
     
     # Parse and verify the response
     sent_response = DNSRecord.parse(sent_data)
@@ -99,11 +107,15 @@ async def test_worker_cache_miss():
     # Setup mock upstream manager
     mock_upstream_manager = Mock()
     
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.record_cache_miss = Mock()
+    
     with patch('jadnet_dns_proxy.server.resolve_doh', 
                return_value=(response_bytes, 600)) as mock_resolve:
         
-        # Create worker task with cache and upstream_manager parameters
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+        # Create worker task with cache, upstream_manager, and global_metrics parameters
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -129,6 +141,9 @@ async def test_worker_cache_miss():
         assert call_args[0] == ("uncached.example.com.", "A")
         assert call_args[1] == response_bytes
         assert call_args[2] == 600
+        
+        # Verify global_metrics.record_cache_miss was called
+        mock_global_metrics.record_cache_miss.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -151,9 +166,13 @@ async def test_worker_resolve_error():
     mock_client = AsyncMock()
     mock_upstream_manager = Mock()
     
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.record_cache_miss = Mock()
+    
     # Mock resolve_doh to return None (error case)
     with patch('jadnet_dns_proxy.server.resolve_doh', return_value=(None, 0)):
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -166,6 +185,9 @@ async def test_worker_resolve_error():
         
         # Verify sendto was NOT called (no response to send)
         transport.sendto.assert_not_called()
+        
+        # Verify global_metrics.record_cache_miss was still called (to track failed queries)
+        mock_global_metrics.record_cache_miss.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -187,7 +209,10 @@ async def test_worker_invalid_dns_packet():
     mock_client = AsyncMock()
     mock_upstream_manager = Mock()
     
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
     
     # Wait for the queued item to be processed
     await queue.join()
@@ -234,20 +259,25 @@ async def test_stats_task():
     mock_upstream_manager = Mock()
     mock_upstream_manager.log_stats = Mock()
     
+    # Create mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.log_stats = Mock()
+    
     # Mock sleep to avoid actually waiting
     with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
         # Make sleep raise CancelledError after first call to stop the loop
         mock_sleep.side_effect = [None, asyncio.CancelledError()]
         
-        stats = asyncio.create_task(stats_task(mock_upstream_manager))
+        stats = asyncio.create_task(stats_task(mock_upstream_manager, mock_global_metrics))
         
         try:
             await stats
         except asyncio.CancelledError:
             pass
         
-        # Verify log_stats was called
+        # Verify log_stats was called on both managers
         assert mock_upstream_manager.log_stats.call_count >= 1
+        assert mock_global_metrics.log_stats.call_count >= 1
         # Verify sleep was called with 300 seconds
         mock_sleep.assert_called_with(300)
 
@@ -271,6 +301,10 @@ async def test_worker_task_done_called():
     mock_client = AsyncMock()
     mock_upstream_manager = Mock()
     
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.record_cache_miss = Mock()
+    
     with patch('jadnet_dns_proxy.server.resolve_doh', return_value=(b"response", 300)):
         # Track task_done calls
         original_task_done = queue.task_done
@@ -283,7 +317,7 @@ async def test_worker_task_done_called():
         
         queue.task_done = tracked_task_done
         
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -329,8 +363,12 @@ async def test_worker_cache_hit_debug_logging(caplog):
     mock_client = AsyncMock()
     mock_upstream_manager = Mock()
     
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.record_cache_hit = Mock()
+    
     # Create worker task
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
     
     # Wait for the queued item to be processed
     await queue.join()
@@ -378,11 +416,15 @@ async def test_worker_upstream_request_debug_logging(caplog):
     mock_client = AsyncMock()
     mock_upstream_manager = Mock()
     
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.record_cache_miss = Mock()
+    
     with patch('jadnet_dns_proxy.server.resolve_doh', 
                return_value=(response_bytes, 600)):
         
         # Create worker task
-        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+        worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
         
         # Wait for the queued item to be processed
         await queue.join()
@@ -429,8 +471,12 @@ async def test_worker_no_verbose_logging_at_info_level(caplog):
     mock_client = AsyncMock()
     mock_upstream_manager = Mock()
     
+    # Setup mock global metrics
+    mock_global_metrics = Mock()
+    mock_global_metrics.record_cache_hit = Mock()
+    
     # Create worker task
-    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager))
+    worker_task = asyncio.create_task(worker("test-worker", queue, mock_client, mock_cache, mock_upstream_manager, mock_global_metrics))
     
     # Wait for the queued item to be processed
     await queue.join()
