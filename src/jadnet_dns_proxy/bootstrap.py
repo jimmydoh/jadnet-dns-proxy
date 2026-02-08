@@ -394,6 +394,7 @@ class CustomDNSTransport(httpx.AsyncHTTPTransport):
             headers=resp.headers,
             stream=CustomAsyncStream(resp.stream),
             extensions=resp.extensions,
+            request=request,
         )
     
     async def aclose(self) -> None:
