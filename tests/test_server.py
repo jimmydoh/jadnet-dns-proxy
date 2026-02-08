@@ -449,15 +449,18 @@ async def test_worker_no_verbose_logging_at_info_level(caplog):
 async def test_main_signal_handler_not_implemented():
     """Test that main() handles NotImplementedError for signal handlers (Windows compatibility)."""
     # Mock all the dependencies
-    with patch('jadnet_dns_proxy.server.get_upstream_ip') as mock_bootstrap, \
+    with patch('jadnet_dns_proxy.server.CustomDNSTransport') as mock_transport_class, \
          patch('jadnet_dns_proxy.server.httpx.AsyncClient') as mock_client_class, \
          patch('jadnet_dns_proxy.server.asyncio.get_running_loop') as mock_get_loop, \
          patch('jadnet_dns_proxy.server.asyncio.create_task') as mock_create_task, \
          patch('jadnet_dns_proxy.server.asyncio.Event') as mock_event_class, \
          patch('jadnet_dns_proxy.server.logger') as mock_logger:
         
-        # Setup bootstrap to return test URLs
-        mock_bootstrap.return_value = "https://1.1.1.1/dns-query"
+        # Setup CustomDNSTransport mock
+        mock_transport = AsyncMock()
+        mock_transport.__aenter__ = AsyncMock(return_value=mock_transport)
+        mock_transport.__aexit__ = AsyncMock(return_value=None)
+        mock_transport_class.return_value = mock_transport
         
         # Setup mock loop
         mock_loop = Mock()
