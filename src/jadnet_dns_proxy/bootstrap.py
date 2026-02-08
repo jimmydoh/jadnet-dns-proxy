@@ -165,11 +165,16 @@ class CustomDNSNetworkBackend(httpcore.AsyncNetworkBackend):
                 self._dns_cache[host] = (resolved_ip, host)
                 logger.info(f"Cached DNS: {host} -> {resolved_ip}")
             else:
-                # If resolution failed or it's already an IP, cache as-is
-                self._dns_cache[host] = (host, host)
+                # If resolution failed, do NOT cache the failure
+                # This allows retries on subsequent connection attempts
+                logger.warning(f"Bootstrap resolution failed for {host}, will retry on next connection")
         
-        # Get the resolved IP and original hostname from cache
-        resolved_ip, original_host = self._dns_cache[host]
+        # Get the resolved IP and original hostname from cache, or use host as-is if not cached
+        if host in self._dns_cache:
+            resolved_ip, original_host = self._dns_cache[host]
+        else:
+            # Resolution failed, use the host as-is (system DNS fallback)
+            resolved_ip, original_host = host, host
         
         # Connect to the resolved IP
         stream = await self._default_backend.connect_tcp(
