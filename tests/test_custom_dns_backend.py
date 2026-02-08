@@ -322,6 +322,261 @@ async def test_custom_async_stream_aclose():
 
 
 @pytest.mark.asyncio
+async def test_custom_dns_transport_end_to_end_with_async_client():
+    """
+    End-to-end test for CustomDNSTransport.handle_async_request() using httpx.AsyncClient.
+    
+    This test validates:
+    1. Request mapping from httpx.Request to httpcore.Request
+    2. Response.request population
+    3. Response stream closure
+    4. raise_for_status() behavior
+    5. resp.content behavior
+    """
+    from jadnet_dns_proxy.bootstrap import CustomDNSTransport
+    import httpx
+    
+    # Create a transport with mocked pool
+    transport = CustomDNSTransport(bootstrap_dns="8.8.8.8")
+    
+    # Mock the connection pool to return a mock response
+    mock_response = AsyncMock(spec=httpcore.Response)
+    mock_response.status = 200
+    mock_response.headers = [(b"content-type", b"application/json"), (b"content-length", b"13")]
+    
+    # Create an async iterator for the response stream
+    async def mock_stream_iter():
+        yield b'{"key": '
+        yield b'"value"}'
+    
+    mock_response.stream = mock_stream_iter()
+    mock_response.extensions = {}
+    mock_response.aclose = AsyncMock()
+    
+    transport._pool.handle_async_request = AsyncMock(return_value=mock_response)
+    
+    # Create an httpx.AsyncClient with our custom transport
+    async with httpx.AsyncClient(transport=transport) as client:
+        # Make a request
+        response = await client.get("https://example.com/api/test")
+        
+        # Verify status code
+        assert response.status_code == 200
+        
+        # Verify raise_for_status() doesn't raise for 200
+        response.raise_for_status()  # Should not raise
+        
+        # Verify response.request is populated correctly
+        assert response.request is not None
+        assert response.request.method == "GET"
+        assert str(response.request.url) == "https://example.com/api/test"
+        
+        # Verify headers are mapped correctly
+        assert response.headers.get("content-type") == "application/json"
+        assert response.headers.get("content-length") == "13"
+        
+        # Verify resp.content reads the full stream
+        content = response.content
+        assert content == b'{"key": "value"}'
+        
+        # Verify the stream is closed after reading content
+        # (httpx automatically closes the stream after reading content)
+    
+    # Verify the underlying httpcore response's aclose was called
+    # (this happens when the response is closed/garbage collected)
+    mock_response.aclose.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_custom_dns_transport_end_to_end_with_error_status():
+    """
+    Test CustomDNSTransport with error status codes and raise_for_status().
+    
+    This test validates raise_for_status() behavior for error responses.
+    """
+    from jadnet_dns_proxy.bootstrap import CustomDNSTransport
+    import httpx
+    
+    # Create a transport with mocked pool
+    transport = CustomDNSTransport(bootstrap_dns="8.8.8.8")
+    
+    # Mock the connection pool to return a 404 response
+    mock_response = AsyncMock(spec=httpcore.Response)
+    mock_response.status = 404
+    mock_response.headers = [(b"content-type", b"text/plain")]
+    
+    # Create an async iterator for the error response stream
+    async def mock_error_stream_iter():
+        yield b'Not Found'
+    
+    mock_response.stream = mock_error_stream_iter()
+    mock_response.extensions = {}
+    mock_response.aclose = AsyncMock()
+    
+    transport._pool.handle_async_request = AsyncMock(return_value=mock_response)
+    
+    # Create an httpx.AsyncClient with our custom transport
+    async with httpx.AsyncClient(transport=transport) as client:
+        # Make a request
+        response = await client.get("https://example.com/api/notfound")
+        
+        # Verify status code
+        assert response.status_code == 404
+        
+        # Verify raise_for_status() raises HTTPStatusError for 404
+        with pytest.raises(httpx.HTTPStatusError) as exc_info:
+            response.raise_for_status()
+        
+        # Verify the exception contains the correct status code
+        assert exc_info.value.response.status_code == 404
+        
+        # Verify response.request is populated in the error case
+        assert response.request is not None
+        assert response.request.method == "GET"
+        
+        # Verify resp.content works even for error responses
+        content = response.content
+        assert content == b'Not Found'
+    
+    # Verify the underlying httpcore response's aclose was called
+    mock_response.aclose.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_custom_dns_transport_request_mapping_with_headers_and_body():
+    """
+    Test CustomDNSTransport request mapping with headers and request body.
+    
+    This test validates that request headers, method, and body are properly
+    mapped from httpx.Request to httpcore.Request.
+    """
+    from jadnet_dns_proxy.bootstrap import CustomDNSTransport
+    import httpx
+    
+    # Create a transport
+    transport = CustomDNSTransport(bootstrap_dns="8.8.8.8")
+    
+    # Capture the httpcore.Request that was sent
+    captured_request = None
+    
+    async def capture_request(req):
+        nonlocal captured_request
+        captured_request = req
+        
+        # Mock response
+        mock_response = AsyncMock(spec=httpcore.Response)
+        mock_response.status = 201
+        mock_response.headers = [(b"location", b"/api/resource/123")]
+        
+        async def mock_stream_iter():
+            yield b'{"id": 123}'
+        
+        mock_response.stream = mock_stream_iter()
+        mock_response.extensions = {}
+        mock_response.aclose = AsyncMock()
+        return mock_response
+    
+    transport._pool.handle_async_request = AsyncMock(side_effect=capture_request)
+    
+    # Create an httpx.AsyncClient with our custom transport
+    async with httpx.AsyncClient(transport=transport) as client:
+        # Make a POST request with headers and body
+        response = await client.post(
+            "https://example.com/api/resource",
+            json={"name": "test", "value": 42},
+            headers={"X-Custom-Header": "custom-value"}
+        )
+        
+        # Verify the response
+        assert response.status_code == 201
+        assert response.headers.get("location") == "/api/resource/123"
+        
+        # Verify response.request is populated
+        assert response.request is not None
+        assert response.request.method == "POST"
+        assert str(response.request.url) == "https://example.com/api/resource"
+        
+        # Verify the captured httpcore.Request was properly mapped
+        assert captured_request is not None
+        assert captured_request.method == b"POST"
+        assert captured_request.url.scheme == b"https"
+        assert captured_request.url.host == b"example.com"
+        assert captured_request.url.target == b"/api/resource"
+        
+        # Verify custom header was included
+        request_headers = dict(captured_request.headers)
+        assert b"X-Custom-Header" in request_headers
+        assert request_headers[b"X-Custom-Header"] == b"custom-value"
+        
+        # Verify content-type header for JSON
+        assert b"Content-Type" in request_headers
+        
+        # Verify response content
+        content = response.content
+        assert content == b'{"id": 123}'
+
+
+@pytest.mark.asyncio
+async def test_custom_dns_transport_response_stream_closure():
+    """
+    Test that response streams are properly closed when response is consumed.
+    
+    This test validates that the underlying httpcore.Response.aclose() is called
+    when the httpx.Response stream is closed, ensuring proper connection cleanup.
+    """
+    from jadnet_dns_proxy.bootstrap import CustomDNSTransport
+    import httpx
+    
+    # Create a transport
+    transport = CustomDNSTransport(bootstrap_dns="8.8.8.8")
+    
+    # Mock the connection pool
+    mock_response = AsyncMock(spec=httpcore.Response)
+    mock_response.status = 200
+    mock_response.headers = []
+    
+    # Track number of times stream is created
+    class StreamTracker:
+        def __init__(self):
+            self.call_count = 0
+    
+    tracker = StreamTracker()
+    
+    async def mock_stream_iter():
+        tracker.call_count += 1
+        yield b'chunk1'
+        yield b'chunk2'
+        yield b'chunk3'
+    
+    mock_response.stream = mock_stream_iter()
+    mock_response.extensions = {}
+    mock_response.aclose = AsyncMock()
+    
+    transport._pool.handle_async_request = AsyncMock(return_value=mock_response)
+    
+    # Create an httpx.AsyncClient with our custom transport
+    async with httpx.AsyncClient(transport=transport) as client:
+        # Make a request
+        response = await client.get("https://example.com/api/data")
+        
+        # Stream the response content manually
+        chunks = []
+        async for chunk in response.aiter_bytes():
+            chunks.append(chunk)
+        
+        # Verify we got the content (may be combined into one chunk by httpx)
+        assert b''.join(chunks) == b'chunk1chunk2chunk3'
+        
+        # Close the response explicitly
+        await response.aclose()
+    
+    # Verify the underlying httpcore response's aclose was called
+    mock_response.aclose.assert_called()
+    # Verify the stream was iterated exactly once
+    assert tracker.call_count == 1
+
+
+@pytest.mark.asyncio
 async def test_custom_dns_backend_does_not_cache_failed_resolutions():
     """Test that failed DNS resolutions are not cached, allowing retries."""
     backend = CustomDNSNetworkBackend(bootstrap_dns="8.8.8.8")
