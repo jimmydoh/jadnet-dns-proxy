@@ -107,9 +107,7 @@ def test_get_queries_per_minute():
         # Start at time 0
         mock_time.return_value = 0.0
         metrics = GlobalMetrics()
-        
-        # Set last_log_time explicitly
-        metrics.last_log_time = 0.0
+        metrics.last_log_time = 0.0  # Ensure consistent test behavior
         
         # Record some queries
         metrics.record_cache_hit()
@@ -246,9 +244,7 @@ def test_log_stats(caplog):
         # Start at time 0
         mock_time.return_value = 0.0
         metrics = GlobalMetrics()
-        
-        # Set last_log_time explicitly
-        metrics.last_log_time = 0.0
+        metrics.last_log_time = 0.0  # Ensure consistent test behavior
         
         # Record some metrics
         metrics.record_cache_hit()
@@ -321,9 +317,7 @@ def test_log_stats_with_only_cache_hits(caplog):
         # Start at time 0
         mock_time.return_value = 0.0
         metrics = GlobalMetrics()
-        
-        # Set last_log_time explicitly
-        metrics.last_log_time = 0.0
+        metrics.last_log_time = 0.0  # Ensure consistent test behavior
         
         # Record only cache hits (no cache misses, so no response times)
         metrics.record_cache_hit()
