@@ -332,9 +332,10 @@ async def test_custom_dns_transport_post_with_content():
             json=post_data
         )
         
-        # Validate response
+        # Verify response
         response.raise_for_status()
         assert response.status_code == 201
+        # JSON parser converts lowercase 'true' to Python's True
         assert response.json() == {"created": True}
         
         # Verify request was mapped
@@ -383,7 +384,9 @@ async def test_custom_dns_transport_request_headers_preserved():
         call_args = mock_pool.handle_async_request.call_args
         request = call_args[0][0]
         
-        # Check headers are present (httpcore uses raw tuples and preserves case)
+        # Check headers are present 
+        # httpcore headers are a list of (name, value) byte tuples
+        # Convert to dict for easier assertions
         headers_dict = dict(request.headers)
         # httpcore preserves header case, so check for the original case
         assert b"X-Custom-Header" in headers_dict
